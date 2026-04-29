@@ -1,0 +1,42 @@
+/* ============================================
+   拾墨 — 设计系统 Tokens
+   唯一真相源，桌面版和移动版共用
+   ============================================ */
+
+:root {
+  /* 间距系统 — 8px 基数 */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+
+  /* 字体阶梯 */
+  --text-xs: 10px;
+  --text-sm: 12px;
+  --text-base: 14px;
+  --text-lg: 16px;
+  --text-xl: 20px;
+  --text-2xl: 24px;
+
+  /* 统一透明度 */
+  --accent-light: rgba(181, 52, 26, 0.12);
+  --accent-bg: rgba(181, 52, 26, 0.08);
+
+  /* 触控标准 */
+  --touch-min: 44px;
+
+  /* 圆角 */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+
+  /* 过渡 */
+  --duration-fast: 120ms;
+  --duration-normal: 160ms;
+  --duration-slow: 300ms;
+}

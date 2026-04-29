@@ -1,0 +1,95 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <!-- 夜墨背景渐变 -->
+    <radialGradient id="bg" cx="40%" cy="35%" r="70%">
+      <stop offset="0%" stop-color="#2A2218"/>
+      <stop offset="100%" stop-color="#0E0C08"/>
+    </radialGradient>
+
+    <!-- 朱砂红光晕 -->
+    <radialGradient id="redGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#B5341A" stop-opacity="0.3"/>
+      <stop offset="100%" stop-color="#B5341A" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- 宣纸纹理 -->
+    <filter id="paper">
+      <feTurbulence type="fractalNoise" baseFrequency="0.65" numOctaves="3" stitchTiles="stitch" result="noise"/>
+      <feColorMatrix type="saturate" values="0" in="noise" result="gray"/>
+      <feBlend in="SourceGraphic" in2="gray" mode="overlay"/>
+    </filter>
+
+    <!-- 圆角裁切 -->
+    <clipPath id="shape">
+      <rect width="1024" height="1024" rx="220" ry="220"/>
+    </clipPath>
+
+    <!-- 字体阴影 -->
+    <filter id="textShadow" x="-5%" y="-5%" width="110%" height="110%">
+      <feDropShadow dx="0" dy="4" stdDeviation="8" flood-color="#000000" flood-opacity="0.4"/>
+    </filter>
+  </defs>
+
+  <g clip-path="url(#shape)">
+
+    <!-- 背景 -->
+    <rect width="1024" height="1024" fill="url(#bg)"/>
+
+    <!-- 极淡宣纸纹理 -->
+    <rect width="1024" height="1024" fill="#F7F3EC" opacity="0.025" filter="url(#paper)"/>
+
+    <!-- 朱砂红光晕（右下角，印章感） -->
+    <ellipse cx="720" cy="720" rx="280" ry="280" fill="url(#redGlow)"/>
+
+    <!-- 「墨」字主体 — 宋体风格，白色，居中偏上 -->
+    <!-- 使用 SVG 路径精确绘制「墨」字，确保小尺寸清晰 -->
+
+    <!-- 黑字头部分 -->
+    <!-- 上横 -->
+    <rect x="312" y="200" width="400" height="44" rx="8" fill="white"/>
+    <!-- 中竖 -->
+    <rect x="490" y="200" width="44" height="120" rx="6" fill="white"/>
+    <!-- 口字框 -->
+    <rect x="360" y="310" width="304" height="130" rx="8" fill="none" stroke="white" stroke-width="40"/>
+    <!-- 下横（黑字头底部） -->
+    <rect x="290" y="460" width="444" height="44" rx="8" fill="white"/>
+
+    <!-- 土字底部分 -->
+    <!-- 上横（短） -->
+    <rect x="360" y="540" width="304" height="38" rx="7" fill="white"/>
+    <!-- 中竖（加重，墨落感） -->
+    <rect x="490" y="540" width="44" height="180" rx="6" fill="white"/>
+    <!-- 底横（最重，最宽） -->
+    <rect x="270" y="720" width="484" height="52" rx="10" fill="white"/>
+
+    <!-- 朱砂红印章 — 右下角 -->
+    <rect x="660" y="800" width="120" height="120" rx="12"
+      fill="#B5341A" opacity="0.9"/>
+
+    <!-- 印章内的小字「拾」简化符号 -->
+    <!-- 人字头 -->
+    <path d="M 700 830 L 720 860 L 740 830"
+      stroke="white" stroke-width="8" stroke-linecap="round"
+      stroke-linejoin="round" fill="none" opacity="0.9"/>
+    <!-- 竖 -->
+    <line x1="720" y1="860" x2="720" y2="890"
+      stroke="white" stroke-width="8" stroke-linecap="round" opacity="0.9"/>
+    <!-- 口 -->
+    <rect x="700" y="892" width="40" height="28" rx="3"
+      stroke="white" stroke-width="7" fill="none" opacity="0.9"/>
+
+    <!-- 极细装饰线 — 左侧竖线，书法感 -->
+    <line x1="220" y1="200" x2="220" y2="824"
+      stroke="#B5341A" stroke-width="3" opacity="0.4"/>
+
+    <!-- 底部品牌文字 — 极淡 -->
+    <text x="512" y="960"
+      font-family="'Inter', -apple-system, sans-serif"
+      font-size="48" font-weight="200"
+      fill="white" opacity="0.15"
+      text-anchor="middle" letter-spacing="16">
+      SHIMO
+    </text>
+
+  </g>
+</svg>

@@ -1,0 +1,18 @@
+{
+  "name": "@notepro/shared",
+  "version": "1.0.0",
+  "description": "NotePro共享代码库",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "devDependencies": {
+    "typescript": "~6.0.2"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.104.0",
+    "uuid": "^14.0.0"
+  }
+}

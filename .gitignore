@@ -1,0 +1,16 @@
+node_modules/
+dist/
+.env
+*.local
+.DS_Store
+Thumbs.db
+
+# Tauri build
+Desktop/src-tauri/target/
+
+# Android build
+Mobile/android/app/build/
+Mobile/android/.gradle/
+
+# Shared build output
+Shared/dist/
