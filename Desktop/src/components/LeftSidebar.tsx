@@ -19,9 +19,10 @@ interface Props {
   onShowSettings: () => void
   onShowDailyReview: () => void
   onShowAskAI: () => void
+  onCollapse: () => void
 }
 
-export default function LeftSidebar({ syncStatus, syncError, isConfigured, onSync, onShowGraph, onImport, onShowReport, onShowSettings, onShowDailyReview, onShowAskAI }: Props) {
+export default function LeftSidebar({ syncStatus, syncError, isConfigured, onSync, onShowGraph, onImport, onShowReport, onShowSettings, onShowDailyReview, onShowAskAI, onCollapse }: Props) {
   const { state, dispatch } = useStore()
   const [renamingTag, setRenamingTag] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState('')
@@ -43,13 +44,13 @@ export default function LeftSidebar({ syncStatus, syncError, isConfigured, onSyn
   // 侧边栏汉字按钮
   const toolBtn = (label: string, onClick: () => void) => (
     <button onClick={onClick} title={label} style={{
-      flex: 1, height: 36,
-      border: 'none', borderRadius: 6,
+      flex: 1, height: 38,
+      border: 'none', borderRadius: 7,
       background: 'transparent',
       color: 'var(--text-faint)',
       cursor: 'pointer', display: 'flex',
       alignItems: 'center', justifyContent: 'center',
-      fontFamily: 'var(--font-sans)', fontSize: 12,
+      fontFamily: 'var(--font-sans)', fontSize: 13,
       transition: 'all 0.15s', letterSpacing: 0.5,
     }}>{label}</button>
   )
@@ -65,8 +66,8 @@ export default function LeftSidebar({ syncStatus, syncError, isConfigured, onSyn
       userSelect: 'none',
     }}>
 
-      {/* Logo */}
-      <div style={{ padding: '20px 16px 0' }}>
+      {/* Logo + 折叠按钮 */}
+      <div style={{ padding: '20px 16px 0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={{
           fontSize: 20, fontWeight: 700,
           color: 'var(--text-primary)',
@@ -78,24 +79,37 @@ export default function LeftSidebar({ syncStatus, syncError, isConfigured, onSyn
         }}>
           拾墨
         </div>
+        <button
+          onClick={onCollapse}
+          title="隐藏侧边栏 (Ctrl+B)"
+          style={{
+            width: 32, height: 32, border: 'none', borderRadius: 6,
+            background: 'transparent', color: 'var(--text-faint)',
+            cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 16, transition: 'all 0.15s', opacity: 0.5,
+          }}
+          onMouseEnter={e => { e.currentTarget.style.opacity = '1'; e.currentTarget.style.background = 'var(--bg-hover)' }}
+          onMouseLeave={e => { e.currentTarget.style.opacity = '0.5'; e.currentTarget.style.background = 'transparent' }}
+        >◁</button>
       </div>
 
       {/* 新建按钮 */}
-      <div style={{ padding: '14px 12px 6px' }}>
+      <div style={{ padding: '14px 12px 8px' }}>
         <button
           onClick={() => dispatch({ type: 'CREATE_NOTE' })}
           style={{
-            width: '100%', padding: '9px 14px',
+            width: '100%', padding: '11px 14px',
             background: 'var(--accent)', color: 'white',
             border: 'none', borderRadius: 8,
-            fontSize: 13, fontWeight: 500,
+            fontSize: 14, fontWeight: 500,
             fontFamily: 'var(--font-sans)',
             cursor: 'pointer', letterSpacing: 0.5,
-            display: 'flex', alignItems: 'center', gap: 7,
-            transition: 'opacity 0.15s',
+            display: 'flex', alignItems: 'center', gap: 8,
+            transition: 'all 0.15s',
+            boxShadow: '0 2px 8px rgba(181, 52, 26, 0.2)',
           }}
-          onMouseEnter={e => (e.currentTarget.style.opacity = '0.85')}
-          onMouseLeave={e => (e.currentTarget.style.opacity = '1')}
+          onMouseEnter={e => { e.currentTarget.style.opacity = '0.9'; e.currentTarget.style.boxShadow = '0 3px 12px rgba(181, 52, 26, 0.3)' }}
+          onMouseLeave={e => { e.currentTarget.style.opacity = '1'; e.currentTarget.style.boxShadow = '0 2px 8px rgba(181, 52, 26, 0.2)' }}
         >
           <span style={{ fontSize: 16, lineHeight: 1 }}>✦</span>
           新建笔记

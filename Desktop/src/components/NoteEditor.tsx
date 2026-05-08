@@ -7,6 +7,11 @@ import Typography from '@tiptap/extension-typography'
 import TaskList from '@tiptap/extension-task-list'
 import TaskItem from '@tiptap/extension-task-item'
 import Image from '@tiptap/extension-image'
+import { Color } from '@tiptap/extension-color'
+import { TextStyle } from '@tiptap/extension-text-style'
+import { FontFamily } from '@tiptap/extension-font-family'
+import { Link } from '@tiptap/extension-link'
+import { Underline } from '@tiptap/extension-underline'
 import { Extension } from '@tiptap/core'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
@@ -15,44 +20,57 @@ import { findRelatedNotes, getNudgeText } from '../lib/relations'
 import { extractTags, wordCount } from '@notepro/shared'
 import { noteToMarkdown } from '@notepro/shared'
 import { exportAsPDF } from '../lib/exportData'
+import { saveImage } from '@notepro/shared'
 import FallingPetals from './FallingPetals'
 import TagSuggestion from './TagSuggestion'
 import ConfirmDialog from './ConfirmDialog'
 import SlashMenu from './SlashMenu'
+import FloatingToolbar from './FloatingToolbar'
 import { verifyPin, setPinHash, hasPinConfigured, clearPin, getAttempts, recordFailedAttempt, resetAttempts } from '../lib/pinSecurity'
 
-// #标签 高亮
+// #标签 高亮 (optimized: only recompute when doc changes)
 const TagHighlight = Extension.create({
   name: 'tagHighlight',
   addProseMirrorPlugins() {
+    const key = new PluginKey('tagHighlight')
     return [new Plugin({
-      key: new PluginKey('tagHighlight'),
+      key,
+      state: {
+        init(_, state) { return buildTagDecos(state) },
+        apply(tr, oldDecos, _oldState, newState) {
+          // Only recompute if document changed
+          if (!tr.docChanged) return oldDecos
+          return buildTagDecos(newState)
+        },
+      },
       props: {
-        decorations(state) {
-          const decos: Decoration[] = []
-          state.doc.descendants((node, pos) => {
-            if (!node.isText || !node.text) return
-            const re = /#[\u4e00-\u9fa5\w]+/g
-            let m
-            while ((m = re.exec(node.text)) !== null) {
-              decos.push(Decoration.inline(
-                pos + m.index, pos + m.index + m[0].length,
-                { class: 'inline-tag' }
-              ))
-            }
-          })
-          return DecorationSet.create(state.doc, decos)
-        }
+        decorations(state) { return key.getState(state) }
       }
     })]
   }
 })
 
+function buildTagDecos(state: any): DecorationSet {
+  const decos: Decoration[] = []
+  state.doc.descendants((node: any, pos: number) => {
+    if (!node.isText || !node.text) return
+    const re = /#[\u4e00-\u9fa5\w]+/g
+    let m
+    while ((m = re.exec(node.text)) !== null) {
+      decos.push(Decoration.inline(
+        pos + m.index, pos + m.index + m[0].length,
+        { class: 'inline-tag' }
+      ))
+    }
+  })
+  return DecorationSet.create(state.doc, decos)
+}
+
 function getAmbience() {
   const h = new Date().getHours()
   if (h >= 5  && h < 9)  return { placeholder: '晨光初照，写下此刻…', petals: false }
   if (h >= 9  && h < 17) return { placeholder: '记录此刻…',           petals: false }
-  if (h >= 17 && h < 20) return { placeholder: '暮色渐浓，心绪沉淠…', petals: true  }
+  if (h >= 17 && h < 20) return { placeholder: '暮色渐浓，心绪沉淀…', petals: true  }
   return                         { placeholder: '夜深人静，与自己对话…', petals: true }
 }
 
@@ -75,8 +93,12 @@ export default function NoteEditor() {
     } catch { return 0 }
   })
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [deletedNoteId, setDeletedNoteId] = useState<string | null>(null)
   const [slashOpen, setSlashOpen] = useState(false)
   const [immersive, setImmersive] = useState(false)
+  const [linkInputOpen, setLinkInputOpen] = useState(false)
+  const [linkUrl, setLinkUrl] = useState('')
+  const [imgResizeTarget, setImgResizeTarget] = useState<HTMLImageElement | null>(null)
   const immersiveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const ambience = getAmbience()
 
@@ -106,6 +128,11 @@ export default function NoteEditor() {
       TaskList,
       TaskItem.configure({ nested: true }),
       Image.configure({ inline: false, allowBase64: true }),
+      TextStyle,
+      Color,
+      FontFamily,
+      Link.configure({ openOnClick: false, HTMLAttributes: { class: 'editor-link' } }),
+      Underline,
       TagHighlight,
     ],
     content: '',
@@ -126,6 +153,9 @@ export default function NoteEditor() {
       setImmersive(false)
       immersiveTimer.current = setTimeout(() => setImmersive(true), 15000)
       if (saveTimer.current) clearTimeout(saveTimer.current)
+      // Longer debounce for large notes
+      const textLen = ed.getText().length
+      const debounce = textLen > 3000 ? 1000 : 300
       saveTimer.current = setTimeout(() => {
         const content = JSON.stringify(ed.getJSON())
         const tags = extractTags(content)
@@ -133,7 +163,7 @@ export default function NoteEditor() {
         updateRelated(note.id)
         setSaveStatus('saved')
         setTimeout(() => setSaveStatus('idle'), 2000)
-      }, 300)
+      }, debounce)
     },
   })
 
@@ -160,6 +190,12 @@ export default function NoteEditor() {
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && note) {
         dispatch({ type: 'SET_ACTIVE_NOTE', noteId: null })
+      }
+      // Ctrl+K: 插入/编辑链接
+      if ((e.ctrlKey || e.metaKey) && e.key === 'k' && editor) {
+        e.preventDefault()
+        setLinkInputOpen(true)
+        setLinkUrl(editor.getAttributes('link').href || 'https://')
       }
     }
     window.addEventListener('keydown', handler)
@@ -246,26 +282,42 @@ export default function NoteEditor() {
     const isLocked = lockedUntil > Date.now()
 
     const handleUnlock = async () => {
-      if (isLocked) return
-      const ok = await verifyPin(pinInput)
-      if (ok) {
-        setLockedNoteId(note.id)
-        setPinInput('')
-        setPinError(false)
-        resetAttempts()
-      } else {
-        const result = recordFailedAttempt()
-        setPinLockUntil(result.lockedUntil)
+      // 重新检查锁定状态（避免闭包中的 isLocked 过期）
+      const currentAttempts = getAttempts()
+      if (currentAttempts.lockedUntil > Date.now()) return
+      if (!pinInput || pinInput.length < 4) return
+      
+      try {
+        const ok = await verifyPin(pinInput)
+        if (ok) {
+          setLockedNoteId(note.id)
+          setPinInput('')
+          setPinError(false)
+          resetAttempts()
+        } else {
+          const result = recordFailedAttempt()
+          setPinLockUntil(result.lockedUntil)
+          setPinError(true)
+          setPinInput('')
+        }
+      } catch (err) {
+        console.error('PIN verification failed:', err)
         setPinError(true)
         setPinInput('')
       }
     }
 
     const handleSetPinAndUnlock = async (newPin: string) => {
-      await setPinHash(newPin)
-      setLockedNoteId(note.id)
-      setPinInput('')
-      setPinError(false)
+      if (!newPin || newPin.length < 4) return
+      try {
+        await setPinHash(newPin)
+        setLockedNoteId(note.id)
+        setPinInput('')
+        setPinError(false)
+      } catch (err) {
+        console.error('Failed to set PIN:', err)
+        setPinError(true)
+      }
     }
 
     // 没设置过 PIN：提示先设置
@@ -443,7 +495,7 @@ export default function NoteEditor() {
             onClick={() => dispatch({ type: 'SET_ACTIVE_NOTE', noteId: null })}
             title="关闭 (Esc)"
             style={{
-              width: 28, height: 28, border: 'none', borderRadius: 6,
+              width: 34, height: 34, border: 'none', borderRadius: 7,
               background: 'transparent', color: 'var(--text-faint)',
               cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
               fontSize: 16, transition: 'all 0.15s',
@@ -473,7 +525,7 @@ export default function NoteEditor() {
             onClick={() => dispatch({ type: 'TOGGLE_FAVORITE', noteId: note.id })}
             title={note.favorited ? '取消收藏' : '收藏'}
             style={{
-              width: 28, height: 28, border: 'none', borderRadius: 6,
+              width: 34, height: 34, border: 'none', borderRadius: 7,
               background: 'transparent',
               color: note.favorited ? 'var(--accent)' : 'var(--text-faint)',
               cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -487,7 +539,7 @@ export default function NoteEditor() {
             onClick={() => dispatch({ type: 'TOGGLE_PIN', noteId: note.id })}
             title={note.pinned ? '取消置顶' : '置顶'}
             style={{
-              width: 28, height: 28, border: 'none', borderRadius: 6,
+              width: 34, height: 34, border: 'none', borderRadius: 7,
               background: 'transparent',
               color: note.pinned ? 'var(--accent)' : 'var(--text-faint)',
               cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -499,18 +551,23 @@ export default function NoteEditor() {
           {/* 隐私锁 */}
           <button
             onClick={() => {
-              dispatch({ type: 'UPDATE_NOTE', noteId: note.id, updates: { locked: !note.locked } })
+              const newLocked = !note.locked
+              dispatch({ type: 'UPDATE_NOTE', noteId: note.id, updates: { locked: newLocked } })
+              // 如果重新加密，清除已解锁状态，下次打开需要重新输入 PIN
+              if (newLocked && lockedNoteId === note.id) {
+                setLockedNoteId(null)
+              }
             }}
             title={note.locked ? '取消加密' : '加密笔记'}
             style={{
-              width: 28, height: 28, border: 'none', borderRadius: 6,
+              width: 34, height: 34, border: 'none', borderRadius: 7,
               background: 'transparent',
               color: note.locked ? 'var(--accent)' : 'var(--text-faint)',
               cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
               transition: 'all 0.15s',
             }}
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
               <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
               {note.locked
                 ? <path d="M7 11V7a5 5 0 0 1 10 0v4" />
@@ -525,14 +582,14 @@ export default function NoteEditor() {
             }}
             title={note.hidden ? '取消隐藏' : '隐藏笔记'}
             style={{
-              width: 28, height: 28, border: 'none', borderRadius: 6,
+              width: 34, height: 34, border: 'none', borderRadius: 7,
               background: 'transparent',
               color: note.hidden ? 'var(--accent)' : 'var(--text-faint)',
               cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
               transition: 'all 0.15s',
             }}
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
               {note.hidden ? <>
                 <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" />
                 <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19" />
@@ -553,13 +610,13 @@ export default function NoteEditor() {
             title="复制为 Markdown"
             aria-label="复制为 Markdown"
             style={{
-              width: 28, height: 28, border: 'none', borderRadius: 6,
+              width: 34, height: 34, border: 'none', borderRadius: 7,
               background: 'transparent', color: 'var(--text-faint)',
               cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
               transition: 'all 0.15s',
             }}
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
               <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
               <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
             </svg>
@@ -570,17 +627,45 @@ export default function NoteEditor() {
             title="导出 PDF"
             aria-label="导出 PDF"
             style={{
-              width: 28, height: 28, border: 'none', borderRadius: 6,
+              width: 34, height: 34, border: 'none', borderRadius: 7,
               background: 'transparent', color: 'var(--text-faint)',
               cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
               transition: 'all 0.15s',
             }}
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
               <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
               <polyline points="14 2 14 8 20 8" />
               <line x1="16" y1="13" x2="8" y2="13" />
               <line x1="16" y1="17" x2="8" y2="17" />
+            </svg>
+          </button>
+          {/* 分享 */}
+          <button
+            onClick={() => {
+              const text = noteToMarkdown(note)
+              const title = note.title || '拾墨笔记'
+              if (navigator.share) {
+                navigator.share({ title, text }).catch(() => {})
+              } else {
+                navigator.clipboard.writeText(text).then(() => setSaveStatus('saved')).catch(() => {})
+              }
+            }}
+            title="分享笔记"
+            aria-label="分享笔记"
+            style={{
+              width: 34, height: 34, border: 'none', borderRadius: 7,
+              background: 'transparent', color: 'var(--text-faint)',
+              cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              transition: 'all 0.15s',
+            }}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="18" cy="5" r="3" />
+              <circle cx="6" cy="12" r="3" />
+              <circle cx="18" cy="19" r="3" />
+              <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+              <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
             </svg>
           </button>
           {/* 删除 */}
@@ -589,7 +674,7 @@ export default function NoteEditor() {
             title="删除笔记"
             aria-label="删除笔记"
             style={{
-              width: 28, height: 28, border: 'none', borderRadius: 6,
+              width: 34, height: 34, border: 'none', borderRadius: 7,
               background: 'transparent', color: 'var(--text-faint)',
               cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
               transition: 'all 0.15s', marginLeft: 4,
@@ -597,7 +682,7 @@ export default function NoteEditor() {
             onMouseEnter={e => { e.currentTarget.style.background = 'var(--error-bg)'; e.currentTarget.style.color = 'var(--danger)' }}
             onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-faint)' }}
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
               <polyline points="3 6 5 6 21 6" />
               <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
             </svg>
@@ -621,6 +706,273 @@ export default function NoteEditor() {
       {/* 分割线 */}
       <div className="editor-divider" />
 
+      {/* 格式工具栏 */}
+      {editor && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 1,
+          padding: '4px 20px', borderBottom: '1px solid var(--border-light)',
+          flexShrink: 0, flexWrap: 'wrap',
+        }}>
+          {/* 撤销/重做 */}
+          <button onClick={() => editor.chain().focus().undo().run()} title="撤销 (Ctrl+Z)"
+            disabled={!editor.can().undo()}
+            style={{
+              width: 32, height: 30, border: 'none', borderRadius: 5,
+              background: 'transparent', color: editor.can().undo() ? 'var(--text-secondary)' : 'var(--text-faint)',
+              cursor: editor.can().undo() ? 'pointer' : 'default', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 14, opacity: editor.can().undo() ? 1 : 0.3, transition: 'all 0.1s',
+            }}>↩</button>
+          <button onClick={() => editor.chain().focus().redo().run()} title="重做 (Ctrl+Shift+Z)"
+            disabled={!editor.can().redo()}
+            style={{
+              width: 32, height: 30, border: 'none', borderRadius: 5,
+              background: 'transparent', color: editor.can().redo() ? 'var(--text-secondary)' : 'var(--text-faint)',
+              cursor: editor.can().redo() ? 'pointer' : 'default', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 14, opacity: editor.can().redo() ? 1 : 0.3, transition: 'all 0.1s',
+            }}>↪</button>
+
+          <div style={{ width: 1, height: 18, background: 'var(--border-light)', margin: '0 6px', flexShrink: 0 }} />
+
+          {/* 文字格式 */}
+          {[
+            { label: 'B', title: '加粗 (Ctrl+B)', action: () => editor.chain().focus().toggleBold().run(), active: editor.isActive('bold'), style: { fontWeight: 700 } },
+            { label: 'I', title: '斜体 (Ctrl+I)', action: () => editor.chain().focus().toggleItalic().run(), active: editor.isActive('italic'), style: { fontStyle: 'italic' } },
+            { label: 'U', title: '下划线 (Ctrl+U)', action: () => editor.chain().focus().toggleUnderline().run(), active: editor.isActive('underline'), style: { textDecoration: 'underline' } },
+            { label: 'S', title: '删除线', action: () => editor.chain().focus().toggleStrike().run(), active: editor.isActive('strike'), style: { textDecoration: 'line-through' } },
+            { label: '🔗', title: '插入链接 (Ctrl+K)', action: () => {
+              setLinkInputOpen(true)
+              setLinkUrl(editor.getAttributes('link').href || 'https://')
+            }, active: editor.isActive('link'), style: { fontSize: 12 } },
+            { label: 'T', title: '清除格式（纯文本）', action: () => editor.chain().focus().clearNodes().unsetAllMarks().run(), active: false, style: { color: 'var(--text-faint)' } },
+          ].map((btn, i) => (
+            <button key={i} onClick={btn.action} title={btn.title} style={{
+              width: 32, height: 30, border: 'none', borderRadius: 5,
+              background: btn.active ? 'var(--accent-bg)' : 'transparent',
+              color: btn.active ? 'var(--accent)' : 'var(--text-secondary)',
+              cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 14, fontFamily: 'var(--font-serif)', transition: 'all 0.1s',
+              ...btn.style,
+            }}>{btn.label}</button>
+          ))}
+
+          <div style={{ width: 1, height: 18, background: 'var(--border-light)', margin: '0 6px', flexShrink: 0 }} />
+
+          {/* 标题 */}
+          {[
+            { label: 'H1', level: 1 },
+            { label: 'H2', level: 2 },
+            { label: 'H3', level: 3 },
+          ].map(h => (
+            <button key={h.level} onClick={() => editor.chain().focus().toggleHeading({ level: h.level as 1|2|3 }).run()}
+              title={`标题 ${h.level}`}
+              style={{
+                width: 32, height: 30, border: 'none', borderRadius: 5,
+                background: editor.isActive('heading', { level: h.level }) ? 'var(--accent-bg)' : 'transparent',
+                color: editor.isActive('heading', { level: h.level }) ? 'var(--accent)' : 'var(--text-secondary)',
+                cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: 12, fontWeight: 600, fontFamily: 'var(--font-num)', transition: 'all 0.1s',
+              }}>{h.label}</button>
+          ))}
+
+          <div style={{ width: 1, height: 18, background: 'var(--border-light)', margin: '0 6px', flexShrink: 0 }} />
+
+          {/* 列表 */}
+          {[
+            { label: '•', title: '无序列表', action: () => editor.chain().focus().toggleBulletList().run(), active: editor.isActive('bulletList') },
+            { label: '1.', title: '有序列表', action: () => editor.chain().focus().toggleOrderedList().run(), active: editor.isActive('orderedList') },
+            { label: '☑', title: '任务列表', action: () => editor.chain().focus().toggleTaskList().run(), active: editor.isActive('taskList') },
+            { label: '→', title: '增加缩进 (Tab)', action: () => editor.chain().focus().sinkListItem('listItem').run(), active: false },
+            { label: '←', title: '减少缩进 (Shift+Tab)', action: () => editor.chain().focus().liftListItem('listItem').run(), active: false },
+          ].map((btn, i) => (
+            <button key={i} onClick={btn.action} title={btn.title} style={{
+              width: 32, height: 30, border: 'none', borderRadius: 5,
+              background: btn.active ? 'var(--accent-bg)' : 'transparent',
+              color: btn.active ? 'var(--accent)' : 'var(--text-secondary)',
+              cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 14, transition: 'all 0.1s',
+            }}>{btn.label}</button>
+          ))}
+
+          <div style={{ width: 1, height: 18, background: 'var(--border-light)', margin: '0 6px', flexShrink: 0 }} />
+
+          {/* 块级 */}
+          {[
+            { label: '❝', title: '引用', action: () => editor.chain().focus().toggleBlockquote().run(), active: editor.isActive('blockquote') },
+            { label: '⟨⟩', title: '代码块', action: () => editor.chain().focus().toggleCodeBlock().run(), active: editor.isActive('codeBlock') },
+            { label: '—', title: '分割线', action: () => editor.chain().focus().setHorizontalRule().run(), active: false },
+          ].map((btn, i) => (
+            <button key={i} onClick={btn.action} title={btn.title} style={{
+              width: 32, height: 30, border: 'none', borderRadius: 5,
+              background: btn.active ? 'var(--accent-bg)' : 'transparent',
+              color: btn.active ? 'var(--accent)' : 'var(--text-secondary)',
+              cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 13, transition: 'all 0.1s',
+            }}>{btn.label}</button>
+          ))}
+
+          <div style={{ width: 1, height: 18, background: 'var(--border-light)', margin: '0 6px', flexShrink: 0 }} />
+
+          {/* 高亮 */}
+          <button onClick={() => editor.chain().focus().toggleHighlight().run()}
+            title="高亮"
+            style={{
+              width: 32, height: 30, border: 'none', borderRadius: 5,
+              background: editor.isActive('highlight') ? 'rgba(200, 168, 75, 0.2)' : 'transparent',
+              color: editor.isActive('highlight') ? 'var(--warning)' : 'var(--text-secondary)',
+              cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 14, transition: 'all 0.1s',
+            }}>✦</button>
+
+          {/* 插入图片 */}
+          <button onClick={() => {
+            const input = document.createElement('input')
+            input.type = 'file'
+            input.accept = 'image/*'
+            input.onchange = () => {
+              const file = input.files?.[0]
+              if (!file) return
+              const reader = new FileReader()
+              reader.onload = async () => {
+                const src = await saveImage(reader.result as string)
+                editor.chain().focus().setImage({ src }).run()
+              }
+              reader.readAsDataURL(file)
+            }
+            input.click()
+          }}
+            title="插入图片"
+            style={{
+              width: 32, height: 30, border: 'none', borderRadius: 5,
+              background: 'transparent', color: 'var(--text-secondary)',
+              cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 14, transition: 'all 0.1s',
+            }}>🖼</button>
+
+          <div style={{ width: 1, height: 18, background: 'var(--border-light)', margin: '0 6px', flexShrink: 0 }} />
+
+          {/* 文字颜色 */}
+          <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+            <label title="文字颜色" style={{
+              width: 32, height: 30, borderRadius: 5, cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              background: 'transparent', transition: 'all 0.1s',
+              fontSize: 14, color: 'var(--text-secondary)',
+            }}>
+              A
+              <input
+                type="color"
+                value={editor.getAttributes('textStyle').color || '#1A1208'}
+                onChange={e => editor.chain().focus().setColor(e.target.value).run()}
+                style={{ position: 'absolute', width: 0, height: 0, opacity: 0, overflow: 'hidden' }}
+              />
+              <span style={{
+                position: 'absolute', bottom: 3, left: 8, right: 8, height: 3,
+                borderRadius: 1,
+                background: editor.getAttributes('textStyle').color || 'var(--text-primary)',
+              }} />
+            </label>
+          </div>
+
+          {/* 字体/大小选择 */}
+          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <select
+              value={editor.getAttributes('textStyle').fontFamily || ''}
+              onChange={e => {
+                const v = e.target.value
+                if (v) editor.chain().focus().setFontFamily(v).run()
+                else editor.chain().focus().unsetFontFamily().run()
+              }}
+              title="字体"
+              style={{
+                padding: '4px 8px', fontSize: 11, border: '1px solid var(--border-light)',
+                borderRadius: 5, background: 'var(--bg-elevated)', color: 'var(--text-secondary)',
+                fontFamily: 'var(--font-sans)', cursor: 'pointer', outline: 'none',
+              }}
+            >
+              <option value="">默认字体</option>
+              <option value="Noto Serif SC" style={{ fontFamily: 'Noto Serif SC' }}>宋体</option>
+              <option value="Noto Sans SC" style={{ fontFamily: 'Noto Sans SC' }}>黑体</option>
+              <option value="Inter" style={{ fontFamily: 'Inter' }}>Inter</option>
+              <option value="JetBrains Mono" style={{ fontFamily: 'JetBrains Mono' }}>等宽</option>
+            </select>
+
+            <select
+              value={
+                editor.isActive('heading', { level: 1 }) ? 'h1' :
+                editor.isActive('heading', { level: 2 }) ? 'h2' :
+                editor.isActive('heading', { level: 3 }) ? 'h3' : 'p'
+              }
+              onChange={e => {
+                const v = e.target.value
+                if (v === 'p') editor.chain().focus().setParagraph().run()
+                else editor.chain().focus().toggleHeading({ level: parseInt(v[1]) as 1|2|3 }).run()
+              }}
+              title="段落样式"
+              style={{
+                padding: '4px 8px', fontSize: 11, border: '1px solid var(--border-light)',
+                borderRadius: 5, background: 'var(--bg-elevated)', color: 'var(--text-secondary)',
+                fontFamily: 'var(--font-num)', cursor: 'pointer', outline: 'none',
+              }}
+            >
+              <option value="p">正文</option>
+              <option value="h1">大标题</option>
+              <option value="h2">中标题</option>
+              <option value="h3">小标题</option>
+            </select>
+          </div>
+        </div>
+      )}
+
+      {/* 链接输入框 */}
+      {linkInputOpen && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 8,
+          padding: '6px 20px', borderBottom: '1px solid var(--border-light)',
+          background: 'var(--bg-elevated)', flexShrink: 0,
+        }}>
+          <span style={{ fontSize: 12, color: 'var(--text-faint)', flexShrink: 0 }}>🔗</span>
+          <input
+            autoFocus
+            value={linkUrl}
+            onChange={e => setLinkUrl(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Enter') {
+                if (linkUrl.trim()) editor?.chain().focus().setLink({ href: linkUrl.trim() }).run()
+                setLinkInputOpen(false)
+                setLinkUrl('')
+              }
+              if (e.key === 'Escape') { setLinkInputOpen(false); setLinkUrl('') }
+            }}
+            placeholder="输入链接地址，回车确认"
+            style={{
+              flex: 1, padding: '6px 10px', fontSize: 13,
+              border: '1px solid var(--border-medium)', borderRadius: 6,
+              background: 'var(--bg-primary)', color: 'var(--text-primary)',
+              outline: 'none', fontFamily: 'var(--font-num)',
+            }}
+          />
+          <button onClick={() => {
+            if (linkUrl.trim()) editor?.chain().focus().setLink({ href: linkUrl.trim() }).run()
+            setLinkInputOpen(false); setLinkUrl('')
+          }} style={{
+            padding: '5px 12px', fontSize: 12, border: 'none', borderRadius: 5,
+            background: 'var(--accent)', color: 'white', cursor: 'pointer',
+          }}>确定</button>
+          {editor?.isActive('link') && (
+            <button onClick={() => {
+              editor?.chain().focus().unsetLink().run()
+              setLinkInputOpen(false); setLinkUrl('')
+            }} style={{
+              padding: '5px 12px', fontSize: 12, border: '1px solid var(--border-light)', borderRadius: 5,
+              background: 'none', color: 'var(--danger)', cursor: 'pointer',
+            }}>移除</button>
+          )}
+          <button onClick={() => { setLinkInputOpen(false); setLinkUrl('') }} style={{
+            border: 'none', background: 'none', color: 'var(--text-faint)', fontSize: 14, cursor: 'pointer',
+          }}>✕</button>
+        </div>
+      )}
+
       {/* 标签建议 */}
       <div style={{ padding: '0 24px' }}>
         <TagSuggestion
@@ -634,6 +986,11 @@ export default function NoteEditor() {
 
       {/* 正文 */}
       <div className="editor-content-wrap"
+        onClick={e => {
+          const img = (e.target as HTMLElement).closest('img') as HTMLImageElement | null
+          if (img) { setImgResizeTarget(img); e.stopPropagation() }
+          else setImgResizeTarget(null)
+        }}
         onDrop={e => {
           if (!editor) return
           const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'))
@@ -641,7 +998,7 @@ export default function NoteEditor() {
           e.preventDefault()
           files.forEach(f => {
             const r = new FileReader()
-            r.onload = () => editor.chain().focus().setImage({ src: r.result as string }).run()
+            r.onload = async () => { const src = await saveImage(r.result as string); editor.chain().focus().setImage({ src }).run() }
             r.readAsDataURL(f)
           })
         }}
@@ -655,12 +1012,49 @@ export default function NoteEditor() {
             const f = i.getAsFile()
             if (!f) return
             const r = new FileReader()
-            r.onload = () => editor.chain().focus().setImage({ src: r.result as string }).run()
+            r.onload = async () => { const src = await saveImage(r.result as string); editor.chain().focus().setImage({ src }).run() }
             r.readAsDataURL(f)
           })
         }}
       >
         <EditorContent editor={editor} className="editor-content" />
+
+        {/* 浮动格式栏 — 选中文字时出现 */}
+        {editor && <FloatingToolbar editor={editor} onLinkClick={() => { setLinkInputOpen(true); setLinkUrl(editor.getAttributes('link').href || 'https://') }} />}
+
+        {/* 图片尺寸选择 */}
+        {imgResizeTarget && (
+          <div style={{
+            position: 'absolute',
+            top: imgResizeTarget.offsetTop + imgResizeTarget.offsetHeight + 4,
+            left: imgResizeTarget.offsetLeft,
+            zIndex: 50,
+            display: 'flex', gap: 4, padding: '6px 8px',
+            background: 'var(--bg-elevated)', border: '1px solid var(--border-light)',
+            borderRadius: 8, boxShadow: 'var(--shadow-md)',
+          }}>
+            {[
+              { label: '小', cls: 'img-small', width: '200px' },
+              { label: '中', cls: 'img-medium', width: '400px' },
+              { label: '大', cls: 'img-full', width: '100%' },
+            ].map(s => (
+              <button key={s.label} onClick={() => {
+                imgResizeTarget.className = s.cls
+                imgResizeTarget.style.maxWidth = s.width
+                setImgResizeTarget(null)
+              }} style={{
+                padding: '4px 12px', fontSize: 12, border: '1px solid var(--border-light)',
+                borderRadius: 5, background: 'var(--bg-primary)', color: 'var(--text-secondary)',
+                cursor: 'pointer', fontFamily: 'var(--font-sans)',
+              }}>{s.label}</button>
+            ))}
+            <button onClick={() => setImgResizeTarget(null)} style={{
+              padding: '4px 8px', fontSize: 12, border: 'none',
+              background: 'none', color: 'var(--text-faint)', cursor: 'pointer',
+            }}>✕</button>
+          </div>
+        )}
+
         {/* Slash 命令菜单 */}
         {slashOpen && editor && (
           <SlashMenu editor={editor} onClose={() => setSlashOpen(false)} />
@@ -779,12 +1173,33 @@ export default function NoteEditor() {
           confirmLabel="删除"
           danger
           onConfirm={() => {
-            dispatch({ type: 'DELETE_NOTE', noteId: note.id })
+            const id = note.id
+            dispatch({ type: 'DELETE_NOTE', noteId: id })
             setConfirmDelete(false)
+            setDeletedNoteId(id)
+            setTimeout(() => setDeletedNoteId(null), 5000)
           }}
           onCancel={() => setConfirmDelete(false)}
         />
       )}
+
+      {/* 撤销删除 toast */}
+      {deletedNoteId && (
+        <div style={{
+          position: 'fixed', bottom: 20, left: '50%', transform: 'translateX(-50%)',
+          padding: '10px 16px', background: 'var(--ink)', color: 'var(--bg-primary)',
+          borderRadius: 8, fontSize: 13, fontFamily: 'var(--font-sans)',
+          display: 'flex', alignItems: 'center', gap: 12, zIndex: 500,
+          boxShadow: 'var(--shadow-lg)', animation: 'fadeIn 150ms ease-out',
+        }}>
+          <span>已删除</span>
+          <button onClick={() => { dispatch({ type: 'RESTORE_NOTE', noteId: deletedNoteId }); setDeletedNoteId(null) }} style={{
+            border: 'none', background: 'var(--accent)', color: 'white',
+            padding: '4px 12px', borderRadius: 4, fontSize: 12, cursor: 'pointer',
+          }}>撤销</button>
+        </div>
+      )}
     </div>
   )
 }
+

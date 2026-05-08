@@ -331,7 +331,7 @@ export default function SettingsPanel({ onClose, user, syncStatus, syncError, on
           {row('关闭编辑器', 'Esc')}
 
           {sectionTitle('关于')}
-          {row('版本', 'v0.1.0')}
+          {row('版本', 'v1.0.0')}
           {row('应用', '拾墨 Shimo')}
         </div>
       </div>

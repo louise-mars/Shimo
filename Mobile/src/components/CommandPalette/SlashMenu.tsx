@@ -6,37 +6,34 @@ interface CommandItem {
   description: string
   icon: string
   action: (editor: Editor) => void
-  advanced?: boolean // only show in advanced mode
 }
 
 const commands: CommandItem[] = [
-  { title: 'Heading 1', description: 'Large section heading', icon: 'H1', action: (e) => e.chain().focus().toggleHeading({ level: 1 }).run() },
-  { title: 'Heading 2', description: 'Medium section heading', icon: 'H2', action: (e) => e.chain().focus().toggleHeading({ level: 2 }).run() },
-  { title: 'To-do List', description: 'Track tasks with checkboxes', icon: '☑', action: (e) => e.chain().focus().toggleTaskList().run() },
-  { title: 'Bullet List', description: 'Simple bullet list', icon: '•', action: (e) => e.chain().focus().toggleBulletList().run() },
-  { title: 'Numbered List', description: 'List with numbers', icon: '1.', action: (e) => e.chain().focus().toggleOrderedList().run() },
-  { title: 'Quote', description: 'Capture a quote', icon: '"', action: (e) => e.chain().focus().toggleBlockquote().run() },
-  { title: 'Divider', description: 'Visual divider line', icon: '──', action: (e) => e.chain().focus().setHorizontalRule().run() },
-  // Advanced-only commands
-  { title: 'Heading 3', description: 'Small section heading', icon: 'H3', action: (e) => e.chain().focus().toggleHeading({ level: 3 }).run(), advanced: true },
-  { title: 'Code Block', description: 'Code with syntax highlighting', icon: '<>', action: (e) => e.chain().focus().toggleCodeBlock().run(), advanced: true },
+  { title: '标题 1', description: '大标题', icon: 'H1', action: (e) => e.chain().focus().toggleHeading({ level: 1 }).run() },
+  { title: '标题 2', description: '中标题', icon: 'H2', action: (e) => e.chain().focus().toggleHeading({ level: 2 }).run() },
+  { title: '标题 3', description: '小标题', icon: 'H3', action: (e) => e.chain().focus().toggleHeading({ level: 3 }).run() },
+  { title: '待办列表', description: '勾选任务', icon: '☑', action: (e) => e.chain().focus().toggleTaskList().run() },
+  { title: '无序列表', description: '项目符号', icon: '•', action: (e) => e.chain().focus().toggleBulletList().run() },
+  { title: '有序列表', description: '数字编号', icon: '1.', action: (e) => e.chain().focus().toggleOrderedList().run() },
+  { title: '引用', description: '引用段落', icon: '"', action: (e) => e.chain().focus().toggleBlockquote().run() },
+  { title: '代码块', description: '代码高亮', icon: '<>', action: (e) => e.chain().focus().toggleCodeBlock().run() },
+  { title: '分割线', description: '水平分隔', icon: '──', action: (e) => e.chain().focus().setHorizontalRule().run() },
 ]
 
 interface Props {
   editor: Editor
   onClose: () => void
-  isAdvanced?: boolean
 }
 
-export default function SlashCommandMenu({ editor, onClose, isAdvanced = false }: Props) {
+export default function SlashCommandMenu({ editor, onClose }: Props) {
   const [query, setQuery] = useState('')
   const [selectedIndex, setSelectedIndex] = useState(0)
   const [position, setPosition] = useState({ top: 0, left: 0 })
   const menuRef = useRef<HTMLDivElement>(null)
 
-  const available = isAdvanced ? commands : commands.filter(c => !c.advanced)
-  const filtered = available.filter(c =>
-    c.title.toLowerCase().includes(query.toLowerCase())
+  const filtered = commands.filter(c =>
+    c.title.toLowerCase().includes(query.toLowerCase()) ||
+    c.description.toLowerCase().includes(query.toLowerCase())
   )
 
   // Position the menu at cursor

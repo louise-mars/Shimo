@@ -49,7 +49,7 @@ interface Props { onNewNote?: () => void; onSelectNote?: () => void; onRefresh?:
 
 export default function NoteList(_props: Props) {
   const { state, dispatch } = useStore()
-  const groups = groupByDate(state.notes.filter(n => !n.deletedAt))
+  const groups = groupByDate(state.notes.filter(n => !n.deletedAt && !n.hidden))
   const [refreshing, setRefreshing] = useState(false)
   const touchStartY = useRef(0)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -151,7 +151,8 @@ export default function NoteList(_props: Props) {
                 >
                   <div className="note-row-main">
                     <span className="note-row-title">
-                      {note.title || getPreview(note.content, 60) || '无标题'}
+                      {note.pinned && <span style={{ fontSize: 10, marginRight: 4 }}>📌</span>}
+                      {note.locked ? '🔒 ' + (note.title || '加密笔记') : (note.title || '无标题')}
                     </span>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <span className="note-row-time">{formatTime(note.updatedAt)}</span>
@@ -175,6 +176,12 @@ export default function NoteList(_props: Props) {
                       </button>
                     </div>
                   </div>
+                  {/* 预览行 */}
+                  {!note.locked && (
+                    <div className="note-row-preview">
+                      {getPreview(note.content, 60) || ''}
+                    </div>
+                  )}
                   {note.tags.length > 0 && (
                     <div className="note-row-tags">
                       {note.tags.map(t => (

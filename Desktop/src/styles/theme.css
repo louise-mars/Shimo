@@ -3,8 +3,6 @@
    与移动版保持一致的山水配色体系
    ============================================ */
 
-@import url('https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;500;600;700&family=Noto+Sans+SC:wght@300;400;500&family=Inter:wght@300;400;500&display=swap');
-
 :root {
   /* 核心色 — 墨黑 */
   --ink:          #1A1208;

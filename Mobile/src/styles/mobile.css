@@ -6,6 +6,7 @@
 /* === 应用壳 === */
 .app-shell {
   height: 100vh;
+  height: 100dvh; /* modern browsers: accounts for mobile browser chrome */
   width: 100vw;
   display: flex;
   flex-direction: column;
@@ -235,6 +236,7 @@
 /* === 编辑器页 === */
 .editor-page {
   height: 100vh;
+  height: 100dvh;
   display: flex;
   flex-direction: column;
   background: var(--bg-primary);
@@ -376,6 +378,12 @@
 .editor-body .tiptap ul[data-type="taskList"] li[data-checked="true"] > div > p {
   text-decoration: line-through; color: var(--text-faint);
 }
+.editor-body .tiptap img {
+  max-width: 100%; border-radius: 8px; margin: 0.6em 0;
+}
+.editor-body .tiptap a {
+  color: var(--accent-deep); text-decoration: underline; text-underline-offset: 2px;
+}
 
 /* === 搜索页 === */
 .search-bar {
@@ -444,6 +452,15 @@
 }
 
 /* === 设置页 === */
+.mobile-settings-section-title {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-faint);
+  font-family: var(--font-num);
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
 .settings-list {
   padding: 0 20px;
   flex: 1;

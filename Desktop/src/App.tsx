@@ -1,8 +1,8 @@
-import { useEffect, useCallback, useState, useRef } from 'react'
+import { useEffect, useCallback, useState, useRef, lazy, Suspense } from 'react'
 import { StoreProvider, useStore } from './store'
 import LeftSidebar from './components/LeftSidebar'
 import NoteList from './components/NoteList'
-import NoteEditor from './components/NoteEditor'
+const NoteEditor = lazy(() => import('./components/NoteEditor'))
 import TagGraph from './components/TagGraph'
 import ShortcutsPanel from './components/ShortcutsPanel'
 import ImportWizard from './components/ImportWizard'
@@ -13,6 +13,7 @@ import SettingsPanel from './components/SettingsPanel'
 import TemplatePicker from './components/TemplatePicker'
 import AppLock, { isLockEnabled, hasPinSet } from './components/AppLock'
 import ErrorBoundary from './components/ErrorBoundary'
+import WelcomeTip, { shouldShowTip } from './components/WelcomeTip'
 import { useSync } from './lib/useSync'
 import { initSentry } from './lib/sentry'
 import './styles/theme.css'
@@ -32,10 +33,13 @@ function Layout() {
   const [showDailyReview, setShowDailyReview] = useState(false)
   const [showAskAI, setShowAskAI] = useState(false)
   const [reviewReminder, setReviewReminder] = useState('')
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const [listCollapsed, setListCollapsed] = useState(false)
+  const [showWelcomeTip, setShowWelcomeTip] = useState(shouldShowTip)
 
   const onMerge = useCallback((notes: any[]) => {
-    dispatch({ type: 'MERGE_SYNC', notes })
-  }, [dispatch])
+    dispatch({ type: 'MERGE_SYNC', notes, folders: [], editingNoteId: state.activeNoteId })
+  }, [dispatch, state.activeNoteId])
 
   const { user, syncStatus, syncError, isConfigured, signOut, triggerSync } = useSync(
     state.notes, [], (notes) => onMerge(notes)
@@ -47,7 +51,14 @@ function Layout() {
       const mod = e.ctrlKey || e.metaKey
       if (mod && e.key === 'n') {
         e.preventDefault()
-        dispatch({ type: 'CREATE_NOTE' })
+        // 前 3 次新建时显示模板选择器
+        const count = parseInt(localStorage.getItem('shimo-create-count') || '0')
+        if (count < 3) {
+          localStorage.setItem('shimo-create-count', String(count + 1))
+          setShowTemplates(true)
+        } else {
+          dispatch({ type: 'CREATE_NOTE' })
+        }
       }
       if (mod && e.key === 'd') {
         e.preventDefault()
@@ -64,6 +75,16 @@ function Layout() {
       if (mod && e.key === 't') {
         e.preventDefault()
         setShowTemplates(true)
+      }
+      // Ctrl+B: 折叠/展开侧边栏
+      if (mod && e.key === 'b') {
+        e.preventDefault()
+        setSidebarCollapsed(v => !v)
+      }
+      // Ctrl+\: 折叠/展开笔记列表
+      if (mod && e.key === '\\') {
+        e.preventDefault()
+        setListCollapsed(v => !v)
       }
     }
     window.addEventListener('keydown', handler)
@@ -120,32 +141,83 @@ function Layout() {
 
   return (
     <div className="desktop-app">
-      <LeftSidebar
-        user={user}
-        syncStatus={syncStatus}
-        syncError={syncError}
-        isConfigured={isConfigured}
-        onSignOut={signOut}
-        onSync={triggerSync}
-        onShowGraph={() => setShowGraph(true)}
-        onImport={() => setShowImport(true)}
-        onShowReport={() => setShowReport(true)}
-        onShowSettings={() => setShowSettings(true)}
-        onShowDailyReview={() => setShowDailyReview(true)}
-        onShowAskAI={() => setShowAskAI(true)}
-      />
-      <NoteList width={listWidth} />
-      {/* 拖拽调整宽度 */}
-      <div
-        onMouseDown={handleDragStart}
-        style={{
-          width: 4, cursor: 'col-resize', flexShrink: 0,
-          background: 'transparent', position: 'relative', zIndex: 10,
-        }}
-        onMouseEnter={e => (e.currentTarget.style.background = 'var(--accent-light)')}
-        onMouseLeave={e => { if (!isDragging.current) e.currentTarget.style.background = 'transparent' }}
-      />
-      <NoteEditor />
+      {/* 侧边栏 — 可折叠 */}
+      {!sidebarCollapsed && (
+        <LeftSidebar
+          user={user}
+          syncStatus={syncStatus}
+          syncError={syncError}
+          isConfigured={isConfigured}
+          onSignOut={signOut}
+          onSync={triggerSync}
+          onShowGraph={() => setShowGraph(true)}
+          onImport={() => setShowImport(true)}
+          onShowReport={() => setShowReport(true)}
+          onShowSettings={() => setShowSettings(true)}
+          onShowDailyReview={() => setShowDailyReview(true)}
+          onShowAskAI={() => setShowAskAI(true)}
+          onCollapse={() => setSidebarCollapsed(true)}
+        />
+      )}
+
+      {/* 笔记列表 — 可折叠 */}
+      {!listCollapsed && (
+        <>
+          <NoteList width={listWidth} onCollapse={() => setListCollapsed(true)} />
+          <div
+            onMouseDown={handleDragStart}
+            style={{
+              width: 4, cursor: 'col-resize', flexShrink: 0,
+              background: 'transparent', position: 'relative', zIndex: 10,
+            }}
+            onMouseEnter={e => (e.currentTarget.style.background = 'var(--accent-light)')}
+            onMouseLeave={e => { if (!isDragging.current) e.currentTarget.style.background = 'transparent' }}
+          />
+        </>
+      )}
+
+      {/* 编辑器 */}
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', position: 'relative' }}>
+        {/* 展开按钮 — 只在有面板被折叠时显示 */}
+        {(sidebarCollapsed || listCollapsed) && (
+          <div style={{
+            position: 'absolute', top: 10, left: 10, zIndex: 20,
+            display: 'flex', gap: 4,
+          }}>
+            {sidebarCollapsed && (
+              <button
+                onClick={() => setSidebarCollapsed(false)}
+                title="显示侧边栏 (Ctrl+B)"
+                style={{
+                  width: 32, height: 32, border: 'none', borderRadius: 6,
+                  background: 'var(--bg-secondary)', color: 'var(--text-faint)',
+                  cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: 16, transition: 'all 0.15s', boxShadow: 'var(--shadow-sm)',
+                }}
+                onMouseEnter={e => { e.currentTarget.style.color = 'var(--text-primary)' }}
+                onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-faint)' }}
+              >☰</button>
+            )}
+            {listCollapsed && (
+              <button
+                onClick={() => setListCollapsed(false)}
+                title="显示列表 (Ctrl+\)"
+                style={{
+                  width: 32, height: 32, border: 'none', borderRadius: 6,
+                  background: 'var(--bg-secondary)', color: 'var(--text-faint)',
+                  cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: 16, transition: 'all 0.15s', boxShadow: 'var(--shadow-sm)',
+                }}
+                onMouseEnter={e => { e.currentTarget.style.color = 'var(--text-primary)' }}
+                onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-faint)' }}
+              >▷</button>
+            )}
+          </div>
+        )}
+        <Suspense fallback={<div className="editor-panel" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}><span style={{ color: 'var(--text-faint)', fontFamily: 'var(--font-serif)', fontSize: 20, opacity: 0.3 }}>墨</span></div>}>
+          <NoteEditor />
+        </Suspense>
+      </div>
       {showGraph && <TagGraph onClose={() => setShowGraph(false)} />}
       {showShortcuts && <ShortcutsPanel onClose={() => setShowShortcuts(false)} />}
       {showImport && <ImportWizard onClose={() => setShowImport(false)} />}
@@ -163,7 +235,7 @@ function Layout() {
       {showAskAI && <AskAI onClose={() => setShowAskAI(false)} />}
 
       {/* 今日回顾提醒 */}
-      {reviewReminder && (
+      {reviewReminder && !showWelcomeTip && (
         <div style={{
           position: 'fixed', bottom: 20, right: 20, zIndex: 900,
           background: 'var(--bg-elevated)', border: '1px solid var(--border-light)',
@@ -185,6 +257,9 @@ function Layout() {
           }}>✕</button>
         </div>
       )}
+
+      {/* 首次使用提示 */}
+      {showWelcomeTip && <WelcomeTip onDismiss={() => setShowWelcomeTip(false)} />}
     </div>
   )
 }

@@ -344,3 +344,120 @@ NotePro/
 | 命令菜单 | 自定义 SlashMenu 组件 | 不依赖 TipTap 插件，更可控 |
 | 回收站 | deletedAt 软删除 | 零迁移成本，兼容现有数据 |
 | 确认弹窗 | 自定义 ConfirmDialog | 保持品牌一致性 |
+
+
+---
+
+## 阶段16：架构重构 + 稳定性修复（2026年5月）
+
+### 共享 Store 核心
+- 抽取 `Shared/src/lib/store.ts` — reducer、actions、types、helpers 统一
+- Desktop 和 Mobile store 改为薄壳（加载/持久化/主题），核心逻辑共享
+- MERGE_SYNC 保护正在编辑的笔记不被远程覆盖
+- 添加 `loaded` 守卫防止空数据覆盖 IndexedDB
+- Context value 用 `useMemo` 防止不必要的重渲染
+
+### useSync 重构
+- triggerSync 改为 ref 模式，只依赖 user
+- Realtime 订阅只在 user 变化时重建（不再每次数据变化重建 WebSocket）
+- 两端实现统一
+
+### 关键 Bug 修复
+- 移动端编辑器"加载中…"卡死 — 视图状态双向同步 + NoteNotFound 自动返回
+- 加密笔记解锁按钮无效 — crypto.subtle fallback + 重新检查锁定状态
+- 语音输入无响应 — 改用 MediaRecorder + 在线 ASR（绕开 Google 服务限制）
+- 删除冗余 MobileEditor.tsx
+
+### 工程经验文档
+- 创建 `docs/engineering-lessons.md` — 9 大类教训 + 代码审查检查清单
+
+---
+
+## 阶段17：编辑器体验全面升级（2026年5月）
+
+### 格式能力补齐
+- 加粗/斜体/下划线/删除线/链接/清除格式
+- 文字颜色（7色选择器）
+- 字体选择（默认/宋/黑/等宽）
+- 段落样式下拉（正文/H1/H2/H3）
+- 缩进/减少缩进
+- 图片尺寸调整（小/中/大）
+- 浮动格式栏（选中文字时出现 B/I/U/S/🔗/✦）
+- 内联链接输入框（替代 prompt()）
+- Ctrl+K 快捷键插入链接
+
+### 移动端补齐
+- PIN 加密验证（与桌面端一致）
+- 保存状态指示器
+- 字数统计
+- Slash 菜单中文化 + 全部命令可用
+- 撤销/重做按钮
+- 有序列表按钮
+- 模板选择器（长按 FAB 或前 3 次新建自动弹出）
+- 导入/导出（JSON/Markdown）
+- ASR 语音识别配置（硅基流动/阿里百炼）
+
+### 桌面端改进
+- 侧边栏/列表可折叠（Ctrl+B / Ctrl+\）
+- 按钮尺寸统一加大（28→34px）
+- 新建按钮改为朱砂红 + 阴影
+- 分享按钮
+- 编辑器 lazy loading（主 chunk 946KB → 538KB）
+- 首次使用快捷键提示卡片
+
+### 首次使用引导
+- Mobile: 3 步全屏引导（写/语音/格式）
+- Desktop: 右下角快捷键提示卡片
+- 前 3 次新建笔记自动弹出模板选择器
+
+---
+
+## 阶段18：健康检查 + 性能优化（2026年5月）
+
+### 关键修复（5项）
+1. FloatingToolbar blur 监听器泄漏 — 正确 off 清理
+2. IndexedDB stale dbPromise — 失败后重置允许重试
+3. ASR 无超时 — 30s AbortController
+4. Store context 未 memoize — useMemo 包装
+5. Mobile calendarTimer 未清理 — unmount cleanup
+
+### 中等修复（5项）
+6. Desktop 无响应式 CSS — 添加 900px/700px 断点
+7. TagHighlight O(n)/keystroke — 改为 plugin state 模式，仅 docChanged 时重算
+8. Theme CSS 不一致 — 补齐 Mobile 缺失的 transition 变量
+9. Mobile 100vh 问题 — 添加 100dvh fallback
+10. Persist 过度触发 — 指纹检查跳过 transient state 变化
+
+### 次要修复（6项）
+11. showMsg timeout 泄漏 — ref 存储 + cleanup
+12. PIN 安全文档 — 添加客户端限制说明
+13. clipboard 无 catch — 添加 .catch()
+14. Recorder 无 onerror — 添加错误处理 + 资源清理
+15. CSS @import 阻塞渲染 — 移除（已在 HTML link 中）
+16. 编辑器内容未居中 — flex justify-content: center
+
+### 最终审查发现
+- Mobile NoteEditor 缺少 TaskList/TaskItem 扩展 — FormatBar ☑ 按钮无效 + 模板待办列表无法渲染
+- 已修复并验证
+
+---
+
+## 当前状态（2026年5月8日）
+
+### 评分
+- 性能：8/10
+- 稳定性：8.5/10
+- 易用性：8/10
+- 外观：8.5/10
+- **综合：8.2/10**
+
+### 构建产物
+- Desktop EXE: `Desktop/src-tauri/target/release/bundle/nsis/Shimo_0.1.0_x64-setup.exe`
+- Mobile APK: `Mobile/android/app/build/outputs/apk/debug/app-debug.apk`
+
+### 已知限制
+- 语音输入需要配置在线 ASR 服务（国内推荐硅基流动）
+- AI 功能需要配置 API Key
+- 同步需要自建 Supabase
+- iOS 版未开发
+- 桌面版无语音输入（Tauri WebView 限制）

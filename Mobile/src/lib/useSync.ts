@@ -21,8 +21,15 @@ export function useSync(
   const [user, setUser] = useState<User | null>(null)
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('offline')
   const isConfigured = !!supabase
-  const syncTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
-  const isSyncingRef = useRef(false)
+  const syncingRef = useRef(false)
+
+  // Refs to always access latest data without recreating callbacks
+  const notesRef = useRef(notes)
+  notesRef.current = notes
+  const foldersRef = useRef(folders)
+  foldersRef.current = folders
+  const onMergeRef = useRef(onMerge)
+  onMergeRef.current = onMerge
 
   // Listen for auth state changes
   useEffect(() => {
@@ -36,21 +43,21 @@ export function useSync(
     return () => subscription.unsubscribe()
   }, [])
 
-  // Full sync function
+  // Stable sync function that always uses latest data via refs
   const triggerSync = useCallback(async () => {
-    if (!user || isSyncingRef.current) return
-    isSyncingRef.current = true
+    if (!user || syncingRef.current) return
+    syncingRef.current = true
     setSyncStatus('syncing')
     try {
-      const merged = await fullSync(notes, folders, user)
-      onMerge(merged.notes, merged.folders)
+      const merged = await fullSync(notesRef.current, foldersRef.current, user)
+      onMergeRef.current(merged.notes, merged.folders)
       setSyncStatus('synced')
     } catch {
       setSyncStatus('error')
     } finally {
-      isSyncingRef.current = false
+      syncingRef.current = false
     }
-  }, [user, notes, folders, onMerge])
+  }, [user]) // only depends on user — uses refs for data
 
   // Auto-sync on login
   useEffect(() => {
@@ -58,7 +65,8 @@ export function useSync(
     else setSyncStatus('offline')
   }, [user]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Debounced sync on data changes (push changes after 10s of inactivity)
+  // Debounced sync on data changes (push after 10s of inactivity)
+  const syncTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   useEffect(() => {
     if (!user) return
     if (syncTimerRef.current) clearTimeout(syncTimerRef.current)
@@ -68,25 +76,28 @@ export function useSync(
     return () => { if (syncTimerRef.current) clearTimeout(syncTimerRef.current) }
   }, [notes, folders]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Realtime subscription
+  // Realtime subscription — only re-subscribe when user changes
   useEffect(() => {
     if (!user) return
     const unsubscribe = subscribeToChanges(
       user,
       (note: Note) => {
-        // Remote note changed — merge into local
-        onMerge(
-          notes.map(n => n.id === note.id ? (note.updatedAt > n.updatedAt ? note : n) : n)
-            .concat(notes.find(n => n.id === note.id) ? [] : [note]),
-          folders,
+        const currentNotes = notesRef.current
+        onMergeRef.current(
+          currentNotes.map(n => n.id === note.id ? (note.updatedAt > n.updatedAt ? note : n) : n)
+            .concat(currentNotes.find(n => n.id === note.id) ? [] : [note]),
+          foldersRef.current,
         )
       },
       (noteId: string) => {
-        onMerge(notes.filter(n => n.id !== noteId), folders)
+        onMergeRef.current(
+          notesRef.current.filter(n => n.id !== noteId),
+          foldersRef.current,
+        )
       },
     )
     return unsubscribe
-  }, [user, notes, folders, onMerge]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [user])
 
   const signOut = useCallback(async () => {
     if (!supabase) return

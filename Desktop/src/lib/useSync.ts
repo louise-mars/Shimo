@@ -14,8 +14,9 @@ export function useSync(
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('offline')
   const [syncError, setSyncError] = useState('')
   const isConfigured = !!supabase
-  const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const syncingRef = useRef(false)
+
+  // Refs to always access latest data without recreating callbacks
   const notesRef = useRef(notes)
   notesRef.current = notes
   const onMergeRef = useRef(onMerge)
@@ -30,19 +31,21 @@ export function useSync(
     return () => subscription.unsubscribe()
   }, [])
 
+  // Stable sync function — uses refs for data
   const triggerSync = useCallback(async () => {
     if (!user || syncingRef.current) return
     syncingRef.current = true
     setSyncStatus('syncing')
     try {
-      const merged = await fullSync(notes, [], user)
-      onMerge(merged.notes)
+      const currentNotes = notesRef.current
+      const merged = await fullSync(currentNotes, [], user)
+      onMergeRef.current(merged.notes)
       setSyncStatus('synced')
       setSyncError('')
 
       // Background: embed recently changed notes
       if (isEmbeddingAvailable()) {
-        const recent = notes.filter(n => !n.deletedAt && Date.now() - n.updatedAt < 60000)
+        const recent = currentNotes.filter(n => !n.deletedAt && Date.now() - n.updatedAt < 60000)
         for (const note of recent.slice(0, 3)) {
           embedNote(note, user.id).catch(() => {})
         }
@@ -57,20 +60,23 @@ export function useSync(
     } finally {
       syncingRef.current = false
     }
-  }, [user, notes, onMerge])
+  }, [user]) // only depends on user
 
   useEffect(() => {
     if (user) triggerSync()
     else setSyncStatus('offline')
   }, [user]) // eslint-disable-line
 
+  // Debounced sync on data changes
+  const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   useEffect(() => {
     if (!user) return
     if (timerRef.current) clearTimeout(timerRef.current)
-    timerRef.current = setTimeout(triggerSync, 10000) // 10s debounce
+    timerRef.current = setTimeout(triggerSync, 10000)
     return () => { if (timerRef.current) clearTimeout(timerRef.current) }
   }, [notes]) // eslint-disable-line
 
+  // Realtime subscription — only re-subscribe when user changes
   useEffect(() => {
     if (!user) return
     return subscribeToChanges(
@@ -84,7 +90,7 @@ export function useSync(
       },
       (noteId: string) => onMergeRef.current(notesRef.current.filter(n => n.id !== noteId)),
     )
-  }, [user]) // only re-subscribe when user changes
+  }, [user])
 
   const signOut = useCallback(async () => {
     if (!supabase) return

@@ -25,7 +25,11 @@ function openDB(): Promise<IDBDatabase> {
       }
     }
     req.onsuccess = () => resolve(req.result)
-    req.onerror = () => reject(req.error)
+    req.onerror = () => {
+      // Reset promise so next call retries
+      dbPromise = null
+      reject(req.error)
+    }
   })
   return dbPromise
 }

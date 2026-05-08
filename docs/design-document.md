@@ -1,6 +1,6 @@
 # 拾墨 (Shimo) — 设计文档
 
-> 版本：v1.0 | 日期：2026年4月
+> 版本：v1.0 | 日期：2026年5月 | 状态：已完成
 
 ---
 
@@ -57,10 +57,11 @@
 ### 三个主页面 + 编辑器
 
 ```
-底部导航：
-  📋 笔记  |  🔍 搜索  |  ✦ 问  |  ⚙ 设置
+底部导航（5 tab）：
+  📋 笔记  |  🔍 搜索  |  ◎ 图谱  |  ✦ 问  |  ⚙ 设置
 
 编辑器：全屏，无底部导航
+FAB：笔记列表页右下角（+ 新建，长按选模板）
 ```
 
 ### 笔记列表页
@@ -103,23 +104,31 @@
 ### 语音输入（核心交互）
 
 ```
-状态机：
-idle → pressing（长按150ms）→ listening → idle
-idle → listening（单击）→ idle
+方案：录音 + 在线 ASR（不依赖 Google 服务）
 
-视觉反馈：
-- idle：🎙 灰色
-- listening：⏹ 红色 + 双层脉冲动画
-- structuring：显示"AI 整理中…"
+流程：
+1. 点击 🎙 → MediaRecorder 开始录音
+2. 显示计时 + 红色脉冲动画
+3. 点击 ⏹ 停止 → 音频上传到 ASR 服务
+4. 显示"识别中…" → 返回文字 → 插入编辑器
 
-有 AI 时：说完 → AI 结构化 → 插入标题+内容+标签
-无 AI 时：说完 → 清理语气词 → 直接插入
+ASR 服务（Whisper API 兼容格式）：
+- 硅基流动（国内直连，推荐）
+- 阿里百炼
+- Groq（需翻墙）
+
+未配置时：
+- 底部显示"点击配置语音识别 →"
+- 点击麦克风 → 自动跳转设置页
+
+有 AI 时：录音 → ASR → AI 结构化 → 插入标题+内容+标签
+无 AI 时：录音 → ASR → 直接插入文字
 ```
 
 ### 沉浸模式
 
 ```
-触发：停止输入2.5秒
+触发：停止输入15秒
 效果：
   - 顶部工具栏隐藏
   - 背景渐变（根据时间：晨/昼/暮/夜）
@@ -262,11 +271,15 @@ AI：OpenAI SDK（兼容 MiniMax / Kimi / GLM / Qwen / OpenRouter）
 位置：Shimo/Shared
 内容：
   - types/index.ts（Note, Folder, TipTapNode 等类型）
+  - lib/store.ts（共享 Store 核心：reducer, actions, helpers）
   - lib/supabase.ts（Supabase 客户端）
   - lib/syncEngine.ts（同步引擎，含冲突检测）
+  - lib/storage.ts（IndexedDB 存储层，含 localStorage fallback）
+  - lib/imageStore.ts（图片独立存储）
+  - lib/embedding.ts（向量嵌入模块）
   - utils/markdown.ts（Markdown 导入导出）
   - utils/tiptap.ts（TipTap 工具函数：extractText/Tags/Preview/wordCount）
-  - styles/tokens.css（设计系统 tokens，跨平台唯一真相源）
+  - utils/pinyin.ts（拼音搜索匹配）
 ```
 
 ### 项目结构

@@ -63,7 +63,7 @@ function formatTime(ts: number): string {
   return d.toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' })
 }
 
-export default function NoteList({ width }: { width?: number }) {
+export default function NoteList({ width, onCollapse }: { width?: number; onCollapse?: () => void }) {
   const { state, dispatch } = useStore()
   const searchRef = useRef<HTMLInputElement>(null)
   const [sortMode, setSortMode] = useState<'updated' | 'created' | 'title'>('updated')
@@ -140,6 +140,20 @@ export default function NoteList({ width }: { width?: number }) {
     <div className="note-list-panel" role="list" aria-label="笔记列表" style={width ? { width } : undefined}>
       {/* 搜索框 */}
       <div className="note-list-search">
+        {onCollapse && (
+          <button
+            onClick={onCollapse}
+            title="隐藏列表 (Ctrl+\)"
+            style={{
+              width: 28, height: 28, border: 'none', borderRadius: 5,
+              background: 'transparent', color: 'var(--text-faint)',
+              cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 15, flexShrink: 0, opacity: 0.5, transition: 'all 0.15s',
+            }}
+            onMouseEnter={e => { e.currentTarget.style.opacity = '1'; e.currentTarget.style.background = 'var(--bg-hover)' }}
+            onMouseLeave={e => { e.currentTarget.style.opacity = '0.5'; e.currentTarget.style.background = 'transparent' }}
+          >◁</button>
+        )}
         <input
           ref={searchRef}
           className="search-input"

@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="horizontal"
+    android:background="@drawable/widget_background"
+    android:gravity="center_vertical"
+    android:padding="12dp">
+
+    <!-- 拾墨 Logo 点 -->
+    <View
+        android:layout_width="6dp"
+        android:layout_height="6dp"
+        android:background="@drawable/widget_dot"
+        android:layout_marginEnd="10dp" />
+
+    <!-- 提示文字 -->
+    <TextView
+        android:id="@+id/widget_hint"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:text="记录此刻…"
+        android:textColor="#FF6E6E73"
+        android:textSize="14sp"
+        android:fontFamily="sans-serif-light"
+        android:ellipsize="end"
+        android:maxLines="1" />
+
+    <!-- 语音按钮 -->
+    <LinearLayout
+        android:id="@+id/widget_voice_btn"
+        android:layout_width="36dp"
+        android:layout_height="36dp"
+        android:background="@drawable/widget_btn_bg"
+        android:gravity="center"
+        android:layout_marginStart="8dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="🎙"
+            android:textSize="16sp" />
+    </LinearLayout>
+
+    <!-- 新建按钮 -->
+    <LinearLayout
+        android:id="@+id/widget_new_btn"
+        android:layout_width="36dp"
+        android:layout_height="36dp"
+        android:background="@drawable/widget_btn_bg_dark"
+        android:gravity="center"
+        android:layout_marginStart="6dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="+"
+            android:textColor="#FFF7F6F3"
+            android:textSize="20sp"
+            android:fontFamily="sans-serif-light" />
+    </LinearLayout>
+
+</LinearLayout>

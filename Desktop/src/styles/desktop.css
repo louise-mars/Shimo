@@ -40,21 +40,22 @@
 .new-note-btn {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   margin: 0 12px 16px;
-  padding: 8px 12px;
-  background: var(--ink);
-  color: var(--bg-primary);
+  padding: 10px 14px;
+  background: var(--accent);
+  color: white;
   border: none;
-  border-radius: 6px;
+  border-radius: 8px;
   font-size: 13px;
   font-weight: 500;
   font-family: var(--font-sans);
   cursor: pointer;
-  transition: opacity var(--duration) var(--ease);
-  letter-spacing: 0.2px;
+  transition: all var(--duration) var(--ease);
+  letter-spacing: 0.3px;
+  box-shadow: 0 2px 8px rgba(181, 52, 26, 0.2);
 }
-.new-note-btn:hover { opacity: 0.85; }
+.new-note-btn:hover { opacity: 0.9; box-shadow: 0 3px 12px rgba(181, 52, 26, 0.3); }
 
 /* 导航项 */
 .sidebar-nav {
@@ -189,17 +190,20 @@
 }
 
 .note-list-search {
-  padding: 12px 14px 8px;
+  padding: 14px 14px 10px;
   position: relative;
   flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .search-input {
-  width: 100%;
-  padding: 7px 28px 7px 10px;
+  flex: 1;
+  padding: 8px 12px;
   background: var(--bg-secondary);
   border: 1px solid transparent;
-  border-radius: 6px;
+  border-radius: 8px;
   font-size: 13px;
   color: var(--text-primary);
   font-family: var(--font-sans);
@@ -209,21 +213,18 @@
 .search-input:focus {
   background: var(--bg-elevated);
   border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-light);
 }
 .search-input::placeholder { color: var(--text-faint); }
 
 .search-clear {
-  position: absolute;
-  right: 22px;
-  top: 50%;
-  transform: translateY(-50%);
   border: none;
   background: none;
   color: var(--text-faint);
   font-size: 12px;
   cursor: pointer;
   padding: 2px 4px;
-  margin-top: 4px;
+  flex-shrink: 0;
 }
 
 .note-list-scroll {
@@ -251,14 +252,14 @@
 }
 
 .note-item {
-  padding: 8px 10px;
-  border-radius: 6px;
+  padding: 10px 12px;
+  border-radius: 8px;
   cursor: pointer;
-  transition: background var(--duration) var(--ease);
-  margin-bottom: 1px;
+  transition: all var(--duration) var(--ease);
+  margin-bottom: 2px;
 }
 .note-item:hover { background: var(--bg-hover); }
-.note-item.active { background: var(--bg-active); }
+.note-item.active { background: var(--bg-active); box-shadow: inset 2px 0 0 var(--accent); }
 
 .note-item-header {
   display: flex;
@@ -331,12 +332,14 @@
 
 /* 顶部操作栏 */
 .editor-toolbar {
-  height: 40px;
+  height: 48px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 24px;
+  padding: 0 20px;
   flex-shrink: 0;
+  border-bottom: 1px solid var(--border-light);
+  background: var(--bg-elevated);
 }
 
 .editor-toolbar-left,
@@ -353,10 +356,10 @@
 }
 
 .editor-action-btn {
-  width: 28px; height: 28px;
+  width: 34px; height: 34px;
   border: none; background: none;
-  border-radius: 5px;
-  font-size: 14px;
+  border-radius: 7px;
+  font-size: 16px;
   color: var(--text-faint);
   cursor: pointer;
   display: flex; align-items: center; justify-content: center;
@@ -439,7 +442,11 @@
 .editor-content .tiptap ul[data-type="taskList"] li label input[type="checkbox"]:checked { background: var(--accent-deep); border-color: var(--accent-deep); }
 .editor-content .tiptap ul[data-type="taskList"] li label input[type="checkbox"]:checked::after { content: '✓'; position: absolute; top: -2px; left: 1px; font-size: 11px; color: white; font-weight: 700; }
 .editor-content .tiptap ul[data-type="taskList"] li[data-checked="true"] > div > p { text-decoration: line-through; color: var(--text-faint); }
-.editor-content .tiptap img { max-width: 100%; border-radius: 6px; margin: 0.8em 0; }
+.editor-content .tiptap img { max-width: 100%; border-radius: 6px; margin: 0.8em 0; cursor: pointer; transition: outline 0.15s; }
+.editor-content .tiptap img:hover { outline: 2px solid var(--accent-light); }
+.editor-content .tiptap img.img-small { max-width: 200px; }
+.editor-content .tiptap img.img-medium { max-width: 400px; }
+.editor-content .tiptap img.img-full { max-width: 100%; }
 .editor-content .tiptap mark { background: rgba(143, 163, 166, 0.2); border-radius: 2px; padding: 0 2px; }
 
 /* #标签 内联高亮 */
@@ -450,7 +457,7 @@
 
 /* 状态栏 */
 .editor-statusbar {
-  height: 28px;
+  height: 32px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -460,6 +467,7 @@
   font-family: var(--font-num);
   border-top: 1px solid var(--border-light);
   flex-shrink: 0;
+  background: var(--bg-secondary);
 }
 
 /* 浮动工具栏（选中文字时出现） */
@@ -478,3 +486,38 @@
 .floating-toolbar button:hover { background: var(--bg-hover); color: var(--text-primary); }
 .floating-toolbar button.is-active { background: var(--accent-bg); color: var(--accent-deep); }
 .floating-toolbar .divider { width: 1px; height: 16px; background: var(--border-light); margin: 0 2px; }
+
+
+/* === 响应式 — 小屏幕适配 === */
+@media (max-width: 900px) {
+  .note-list-panel {
+    width: 200px;
+    min-width: 200px;
+  }
+}
+
+@media (max-width: 700px) {
+  .note-list-panel {
+    width: 180px;
+    min-width: 160px;
+  }
+  .editor-title {
+    font-size: 20px;
+    padding: 4px 16px 10px;
+  }
+  .editor-divider {
+    margin: 0 16px;
+  }
+  .editor-content .tiptap {
+    padding: 16px 16px 60px;
+  }
+  .editor-statusbar {
+    padding: 0 16px;
+  }
+}
+
+/* === 编辑器内容居中 === */
+.editor-content-wrap {
+  display: flex;
+  justify-content: center;
+}

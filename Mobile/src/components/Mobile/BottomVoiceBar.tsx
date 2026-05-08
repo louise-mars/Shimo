@@ -1,216 +1,207 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
-import { Capacitor } from '@capacitor/core'
-import { startListening, stopListening, startWebSpeech } from '../../lib/speech'
+import { startRecording, stopRecording, cancelRecording } from '../../lib/recorder'
+import { transcribeAudio, isASRConfigured } from '../../lib/speechToText'
 import { structureVoiceText, isAIConfigured } from '../../lib/ai'
-
-// 过滤语气词，自动加标点
-function cleanSpeechText(raw: string): string {
-  return raw
-    // 过滤语气词
-    .replace(/[嗯啊呢吧哦哈那个就是然后这个]/g, '')
-    // 句末加句号
-    .replace(/([^，。！？\s])(\s*)$/, '$1。')
-    // 多余空格
-    .replace(/\s+/g, '')
-    .trim()
-}
 
 interface Props {
   onText: (text: string) => void
   onStructured?: (title: string, content: string, tags: string[]) => void
+  onGoToSettings?: () => void
   disabled?: boolean
 }
 
-type Mode = 'idle' | 'pressing' | 'listening' | 'error'
+type Mode = 'idle' | 'recording' | 'transcribing' | 'processing' | 'error'
 
-export default function BottomVoiceBar({ onText, onStructured, disabled }: Props) {
+export default function BottomVoiceBar({ onText, onStructured, onGoToSettings, disabled }: Props) {
   const [mode, setMode] = useState<Mode>('idle')
-  const [interim, setInterim] = useState('')
-  const [structuring, setStructuring] = useState(false)
-  const stopWebRef = useRef<(() => void) | null>(null)
-  const pressTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
-  const isNative = Capacitor.isNativePlatform()
+  const [displayText, setDisplayText] = useState('')
+  const [duration, setDuration] = useState(0)
+  const timerRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined)
   const aiEnabled = isAIConfigured()
+  const asrReady = isASRConfigured()
 
   useEffect(() => {
     return () => {
-      if (isNative) stopListening()
-      else stopWebRef.current?.()
+      cancelRecording()
+      if (timerRef.current) clearInterval(timerRef.current)
+      if (msgTimer.current) clearTimeout(msgTimer.current)
     }
   }, [])
 
-  const startVoice = useCallback(async () => {
-    setMode('listening')
-    setInterim('')
+  const msgTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
-    const onResult = ({ text, isFinal }: { text: string; isFinal: boolean }) => {
-      if (!text) return
-      if (!isFinal) {
-        setInterim(text)
-        return
-      }
-      const cleaned = cleanSpeechText(text)
-      if (!cleaned) { setInterim(''); setMode('idle'); return }
-
-      // 有 AI 且有 onStructured 回调 → 结构化处理
-      if (aiEnabled && onStructured) {
-        setInterim('')
-        setMode('idle')
-        setStructuring(true)
-        structureVoiceText(cleaned)
-          .then(result => onStructured(result.title, result.content, result.tags))
-          .catch(() => onText(cleaned)) // AI 失败降级为纯文字
-          .finally(() => setStructuring(false))
-      } else {
-        onText(cleaned)
-        setInterim('')
-        setMode('idle')
-      }
-    }
-
-    const onError = (err: string) => {
-      setMode(err === 'not_available' ? 'error' : 'idle')
-      setInterim('')
-    }
-
-    if (isNative) {
-      await startListening(onResult, onError, 'zh-CN')
-    } else {
-      stopWebRef.current = startWebSpeech(onResult, onError, 'zh-CN')
-      if (!stopWebRef.current) setMode('error')
-    }
-  }, [onText, isNative])
-
-  const stopVoice = useCallback(async () => {
-    if (isNative) await stopListening()
-    else stopWebRef.current?.()
-    setMode('idle')
-    setInterim('')
-  }, [isNative])
-
-  // 长按触发
-  const handlePressStart = () => {
-    if (disabled || mode === 'error') return
-    setMode('pressing')
-    pressTimer.current = setTimeout(() => {
-      startVoice()
-    }, 150) // 150ms 防误触
+  const showMsg = (msg: string, ms = 2500) => {
+    setDisplayText(msg)
+    if (msgTimer.current) clearTimeout(msgTimer.current)
+    if (ms > 0) msgTimer.current = setTimeout(() => setDisplayText(''), ms)
   }
 
-  const handlePressEnd = () => {
-    if (pressTimer.current) clearTimeout(pressTimer.current)
-    if (mode === 'pressing') {
+  const finalize = useCallback((text: string) => {
+    const cleaned = text.trim()
+    if (!cleaned) { showMsg('未识别到内容'); return }
+
+    if (aiEnabled && onStructured) {
+      setMode('processing')
+      setDisplayText('AI 整理中…')
+      structureVoiceText(cleaned)
+        .then(r => { onStructured(r.title, r.content, r.tags); showMsg('✓ 已插入') })
+        .catch(() => { onText(cleaned); showMsg('✓ 已插入') })
+        .finally(() => setMode('idle'))
+    } else {
+      onText(cleaned)
+      showMsg('✓ 已插入')
       setMode('idle')
+    }
+  }, [onText, onStructured, aiEnabled])
+
+  // 开始录音
+  const start = useCallback(async () => {
+    if (!asrReady) {
+      if (onGoToSettings) {
+        onGoToSettings()
+      } else {
+        setMode('error')
+        setDisplayText('请先在设置中配置语音识别服务')
+      }
       return
     }
-    if (mode === 'listening') stopVoice()
+
+    const ok = await startRecording()
+    if (!ok) {
+      setMode('error')
+      showMsg('无法访问麦克风')
+      return
+    }
+
+    setMode('recording')
+    setDuration(0)
+    setDisplayText('录音中… 点击停止')
+
+    // 计时器
+    timerRef.current = setInterval(() => {
+      setDuration(d => d + 1)
+    }, 1000)
+  }, [asrReady])
+
+  // 停止录音并转写
+  const stop = useCallback(async () => {
+    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = undefined }
+
+    setMode('transcribing')
+    setDisplayText('识别中…')
+
+    const blob = await stopRecording()
+    if (!blob || blob.size < 1000) {
+      // 录音太短
+      setMode('idle')
+      showMsg('录音太短，请重试')
+      return
+    }
+
+    const text = await transcribeAudio(blob)
+    if (text) {
+      finalize(text)
+    } else {
+      setMode('idle')
+      showMsg('识别失败，请重试')
+    }
+  }, [finalize])
+
+  // 取消
+  const cancel = useCallback(() => {
+    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = undefined }
+    cancelRecording()
+    setMode('idle')
+    setDisplayText('')
+    setDuration(0)
+  }, [])
+
+  const toggle = () => {
+    if (disabled || mode === 'transcribing' || mode === 'processing') return
+    if (mode === 'error') { setMode('idle'); setDisplayText(''); return }
+    if (mode === 'recording') stop()
+    else start()
   }
 
-  // 单击也可以触发（方便不习惯长按的用户）
-  const handleClick = () => {
-    if (disabled || mode === 'error') return
-    if (mode === 'listening') { stopVoice(); return }
-    if (mode === 'idle') startVoice()
-  }
+  const isActive = mode === 'recording'
+  const isBusy = mode === 'transcribing' || mode === 'processing'
 
-  const isActive = mode === 'listening' || mode === 'pressing'
+  // 格式化时长
+  const formatDur = (s: number) => {
+    const m = Math.floor(s / 60)
+    const sec = s % 60
+    return m > 0 ? `${m}:${sec.toString().padStart(2, '0')}` : `${sec}s`
+  }
 
   return (
     <div style={{
-      display: 'flex',
-      alignItems: 'center',
-      padding: '8px 16px',
+      display: 'flex', alignItems: 'center',
+      padding: '8px 16px', gap: 10,
       background: 'var(--bg-elevated)',
       borderTop: '1px solid var(--border-light)',
-      gap: 12,
       flexShrink: 0,
     }}>
-      {/* 实时识别文字 */}
+      {/* 状态文字 */}
       <div style={{
-        flex: 1,
-        fontSize: 14,
-        color: isActive ? 'var(--text-secondary)' : 'var(--text-faint)',
-        fontFamily: 'var(--font-sans)',
-        fontWeight: 300,
-        minHeight: 20,
-        transition: 'color 0.2s',
-        overflow: 'hidden',
-        textOverflow: 'ellipsis',
-        whiteSpace: 'nowrap',
+        flex: 1, fontSize: 13, minHeight: 20, lineHeight: '20px',
+        fontFamily: 'var(--font-sans)', fontWeight: 300,
+        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+        color: displayText.startsWith('✓') ? 'var(--success)'
+          : mode === 'error' ? 'var(--danger)'
+          : isActive ? 'var(--accent)'
+          : isBusy ? 'var(--text-secondary)'
+          : 'var(--text-faint)',
       }}>
-        {mode === 'error'
-          ? '语音识别不可用'
-          : structuring
-          ? 'AI 整理中…'
-          : mode === 'pressing'
-          ? '松开开始说话…'
-          : interim
-          ? interim
-          : isActive
-          ? '正在听…'
-          : aiEnabled
-          ? '长按说话，AI 自动整理'
-          : '长按说话，或点击开始'
+        {displayText
+          || (isActive ? `录音中 ${formatDur(duration)}… 点击停止` : '')
+          || (isBusy ? '处理中…' : '')
+          || (asrReady ? '点击开始语音输入' : '点击配置语音识别 →')
         }
       </div>
 
-      {/* 语音按钮 */}
+      {/* 取消按钮（录音中显示） */}
+      {isActive && (
+        <button
+          onClick={cancel}
+          style={{
+            border: 'none', background: 'none',
+            color: 'var(--text-faint)', fontSize: 12,
+            cursor: 'pointer', padding: '4px 8px',
+            fontFamily: 'var(--font-sans)',
+          }}
+        >
+          取消
+        </button>
+      )}
+
+      {/* 主按钮 */}
       <button
-        onPointerDown={handlePressStart}
-        onPointerUp={handlePressEnd}
-        onPointerLeave={handlePressEnd}
-        onClick={handleClick}
-        disabled={disabled || mode === 'error'}
+        onClick={toggle}
+        disabled={disabled || isBusy}
         data-voice-trigger="true"
         style={{
-          width: 44,
-          height: 44,
-          borderRadius: '50%',
-          border: 'none',
-          background: isActive ? 'var(--danger)' : 'var(--bg-secondary)',
-          color: isActive ? 'white' : mode === 'error' ? 'var(--text-faint)' : 'var(--text-secondary)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          cursor: disabled || mode === 'error' ? 'default' : 'pointer',
-          transition: 'all 0.15s ease',
-          position: 'relative',
-          flexShrink: 0,
-          touchAction: 'none', // 防止长按触发系统菜单
-          userSelect: 'none',
-          WebkitUserSelect: 'none',
+          width: 44, height: 44, borderRadius: '50%', border: 'none',
+          background: isActive ? 'var(--danger)' : isBusy ? 'var(--accent-light)' : 'var(--bg-secondary)',
+          color: isActive ? 'white' : 'var(--text-secondary)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          cursor: disabled || isBusy ? 'default' : 'pointer',
+          transition: 'all 0.15s', position: 'relative', flexShrink: 0,
+          touchAction: 'none', userSelect: 'none', WebkitUserSelect: 'none',
         }}
       >
-        {/* 录音脉冲 */}
         {isActive && (
-          <>
-            <span style={{
-              position: 'absolute', inset: -5,
-              borderRadius: '50%',
-              border: '2px solid var(--danger)',
-              opacity: 0.3,
-              animation: 'voicePulse 1s ease-in-out infinite',
-            }} />
-            <span style={{
-              position: 'absolute', inset: -10,
-              borderRadius: '50%',
-              border: '1.5px solid var(--danger)',
-              opacity: 0.15,
-              animation: 'voicePulse 1s ease-in-out infinite 0.3s',
-            }} />
-          </>
+          <span style={{
+            position: 'absolute', inset: -6, borderRadius: '50%',
+            border: '2px solid var(--danger)', opacity: 0.3,
+            animation: 'voicePulse 1s ease-in-out infinite',
+          }} />
         )}
         <span style={{ fontSize: 20, lineHeight: 1, position: 'relative', zIndex: 1 }}>
-          {isActive ? '⏹' : mode === 'error' ? '🚫' : '🎙'}
+          {isActive ? '⏹' : isBusy ? '⏳' : mode === 'error' ? '⚠' : '🎙'}
         </span>
       </button>
 
-      <style>{`
-        @keyframes voicePulse {
-          0%, 100% { transform: scale(1); opacity: 0.3; }
-          50%       { transform: scale(1.2); opacity: 0.1; }
-        }
-      `}</style>
+      <style>{`@keyframes voicePulse{0%,100%{transform:scale(1);opacity:.3}50%{transform:scale(1.2);opacity:.1}}`}</style>
     </div>
   )
 }

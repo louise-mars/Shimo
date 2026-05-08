@@ -9,25 +9,10 @@ async function getSpeech() {
     const mod = await import('@capacitor-community/speech-recognition')
     SpeechPlugin = mod.SpeechRecognition
     return SpeechPlugin
-  } catch { return null }
-}
-
-export async function checkSpeechAvailable(): Promise<boolean> {
-  const sp = await getSpeech()
-  if (!sp) return false
-  try {
-    const { available } = await sp.available()
-    return available
-  } catch { return false }
-}
-
-export async function requestSpeechPermission(): Promise<boolean> {
-  const sp = await getSpeech()
-  if (!sp) return false
-  try {
-    const { speechRecognition } = await sp.requestPermissions()
-    return speechRecognition === 'granted'
-  } catch { return false }
+  } catch (e) {
+    console.error('[Speech] Plugin load failed:', e)
+    return null
+  }
 }
 
 export interface SpeechResult {
@@ -35,6 +20,47 @@ export interface SpeechResult {
   isFinal: boolean
 }
 
+/**
+ * 原生语音识别 — 阻塞模式
+ * 
+ * 使用 partialResults: false，start() 会等待用户说完后返回结果。
+ * 这是最可靠的模式，不依赖事件。
+ * 
+ * 返回一个 Promise<string | null>
+ */
+export async function listenOnce(language = 'zh-CN'): Promise<string | null> {
+  const sp = await getSpeech()
+  if (!sp) return null
+
+  try {
+    const { available } = await sp.available()
+    if (!available) return null
+  } catch { return null }
+
+  try {
+    const perm = await sp.requestPermissions()
+    if (perm?.speechRecognition !== 'granted') return null
+  } catch { return null }
+
+  try {
+    // partialResults: false → start() 阻塞直到识别完成
+    const result = await sp.start({
+      language,
+      maxResults: 5,
+      partialResults: false,
+      popup: false,
+    })
+    return result?.matches?.[0] || null
+  } catch (e) {
+    console.error('[Speech] listenOnce failed:', e)
+    return null
+  }
+}
+
+/**
+ * 原生语音识别 — 事件模式（带 partialResults）
+ * 用于实时显示中间结果
+ */
 export async function startListening(
   onResult: (result: SpeechResult) => void,
   onError: (error: string) => void,
@@ -43,75 +69,87 @@ export async function startListening(
   const sp = await getSpeech()
   if (!sp) { onError('not_available'); return }
 
-  // 先请求权限
-  const granted = await requestSpeechPermission()
-  if (!granted) { onError('permission_denied'); return }
+  try {
+    const { available } = await sp.available()
+    if (!available) { onError('not_available'); return }
+  } catch { onError('not_available'); return }
 
   try {
-    await sp.start({
+    const perm = await sp.requestPermissions()
+    if (perm?.speechRecognition !== 'granted') { onError('permission_denied'); return }
+  } catch { onError('permission_denied'); return }
+
+  try {
+    await sp.addListener('partialResults', (data: { matches?: string[] }) => {
+      const text = data?.matches?.[0]
+      if (text) onResult({ text, isFinal: false })
+    })
+
+    await sp.addListener('listeningState', (data: { status: string }) => {
+      if (data.status === 'stopped') {
+        onResult({ text: '', isFinal: true })
+        sp.removeAllListeners().catch(() => {})
+      }
+    })
+
+    const result = await sp.start({
       language,
-      maxResults: 1,
-      prompt: '请说话…',
+      maxResults: 5,
       partialResults: true,
       popup: false,
     })
 
-    // 监听实时结果
-    await sp.addListener('partialResults', (data: { matches: string[] }) => {
-      if (data.matches?.length > 0) {
-        onResult({ text: data.matches[0], isFinal: false })
-      }
-    })
-
-    // 监听最终结果
-    await sp.addListener('listeningState', (data: { status: string }) => {
-      if (data.status === 'stopped') {
-        onResult({ text: '', isFinal: true })
-      }
-    })
+    // 某些设备直接从 start() 返回结果
+    if (result?.matches?.[0]) {
+      onResult({ text: result.matches[0], isFinal: true })
+      await sp.removeAllListeners().catch(() => {})
+    }
   } catch (e: any) {
-    onError(e?.message || 'unknown')
+    await sp.removeAllListeners().catch(() => {})
+    onError(e?.message || 'start_failed')
   }
 }
 
 export async function stopListening(): Promise<void> {
   const sp = await getSpeech()
   if (!sp) return
-  try {
-    await sp.stop()
-    await sp.removeAllListeners()
-  } catch (err) {
-    // Ignore stop errors
-  }
+  try { await sp.stop() } catch {}
+  try { await sp.removeAllListeners() } catch {}
 }
 
-// Web 环境降级：使用浏览器原生 Web Speech API
+/**
+ * Web Speech API fallback
+ */
 export function startWebSpeech(
   onResult: (result: SpeechResult) => void,
   onError: (error: string) => void,
   language = 'zh-CN',
 ): (() => void) | null {
-  const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
-  if (!SpeechRecognition) { onError('not_available'); return null }
+  const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+  if (!SR) { onError('not_available'); return null }
 
-  const recognition = new SpeechRecognition()
-  recognition.lang = language
-  recognition.continuous = true
-  recognition.interimResults = true
-  recognition.maxAlternatives = 1
+  const rec = new SR()
+  rec.lang = language
+  rec.continuous = false
+  rec.interimResults = true
 
-  recognition.onresult = (event: any) => {
-    const result = event.results[event.results.length - 1]
-    onResult({
-      text: result[0].transcript,
-      isFinal: result.isFinal,
-    })
+  let lastText = ''
+  let done = false
+
+  rec.onresult = (e: any) => {
+    const r = e.results[e.results.length - 1]
+    lastText = r[0].transcript
+    onResult({ text: lastText, isFinal: r.isFinal })
+  }
+  rec.onerror = (e: any) => { done = true; onError(e.error || 'unknown') }
+  rec.onend = () => {
+    if (!done) {
+      if (lastText) onResult({ text: lastText, isFinal: true })
+      else onError('no-speech')
+    }
+    done = true
   }
 
-  recognition.onerror = (event: any) => {
-    onError(event.error || 'unknown')
-  }
-
-  recognition.start()
-  return () => recognition.stop()
+  try { rec.start() } catch { onError('not_available'); return null }
+  return () => { done = true; try { rec.stop() } catch {} }
 }

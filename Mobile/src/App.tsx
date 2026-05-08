@@ -5,6 +5,8 @@ import NoteEditor from './components/Mobile/NoteEditor'
 import SearchPage from './components/Mobile/SearchPage'
 import SettingsPage from './components/Mobile/SettingsPage'
 import AuthModal from './components/Auth'
+import Onboarding, { shouldShowOnboarding } from './components/Mobile/Onboarding'
+import TemplatePicker from './components/Mobile/TemplatePicker'
 import { useSync } from './lib/useSync'
 import { setStatusBarStyle, setupAppListeners } from './lib/native'
 import { setupNotificationChannel } from './lib/review'
@@ -16,16 +18,31 @@ const AISettings   = lazy(() => import('./components/Mobile/AISettings'))
 const AskPage      = lazy(() => import('./components/Mobile/AskPage'))
 const NoteGraphPage = lazy(() => import('./components/Mobile/NoteGraphPage'))
 
+// === 视图状态机 ===
+// 所有合法的视图状态和转换都在这里显式定义
 type View = 'list' | 'editor' | 'search' | 'settings' | 'ai-settings' | 'ask' | 'graph'
 
+/** 视图是否需要底部导航栏 */
+function showBottomNav(view: View): boolean {
+  return view !== 'editor'
+}
+
+/** 视图是否需要 FAB */
+function showFab(view: View): boolean {
+  return view === 'list'
+}
+
 function App() {
-  const { state, dispatch } = useStore()
+  const { state, dispatch, loaded } = useStore()
   const [view, setView] = useState<View>('list')
   const [authOpen, setAuthOpen] = useState(false)
+  const [showOnboarding, setShowOnboarding] = useState(shouldShowOnboarding)
+  const [showTemplates, setShowTemplates] = useState(false)
 
+  // MERGE_SYNC 时传入当前正在编辑的 noteId，保护编辑中内容
   const onMerge = useCallback((notes: any[], folders: any[]) => {
-    dispatch({ type: 'MERGE_SYNC', notes, folders })
-  }, [dispatch])
+    dispatch({ type: 'MERGE_SYNC', notes, folders, editingNoteId: state.activeNoteId })
+  }, [dispatch, state.activeNoteId])
 
   const { user, syncStatus, isConfigured, signOut, triggerSync } = useSync(
     state.notes, state.folders, onMerge
@@ -42,7 +59,6 @@ function App() {
   // 初始化通知渠道 + 延迟调度今日回顾（不阻塞启动）
   useEffect(() => {
     setupNotificationChannel()
-    // 延迟5秒再调度，不影响启动速度
     const t = setTimeout(async () => {
       const { scheduleReviewNotification } = await import('./lib/review')
       const todayNotes = state.notes.filter(n =>
@@ -65,39 +81,60 @@ function App() {
     return () => clearTimeout(t)
   }, []) // eslint-disable-line
 
-  // 处理 Widget deep link
+  // 处理 Widget deep link（仅在数据加载完成后）
   useEffect(() => {
+    if (!loaded) return
     const url = window.location.href
     if (url.includes('shimo://voice') || sessionStorage.getItem('shimo-widget-voice')) {
       sessionStorage.removeItem('shimo-widget-voice')
       dispatch({ type: 'CREATE_NOTE' })
-      // 等编辑器打开后自动触发语音
       sessionStorage.setItem('shimo-auto-voice', '1')
     } else if (url.includes('shimo://new') || sessionStorage.getItem('shimo-widget-new')) {
       sessionStorage.removeItem('shimo-widget-new')
       dispatch({ type: 'CREATE_NOTE' })
     }
-  }, [])
+  }, [loaded]) // eslint-disable-line
 
-  // 选中笔记 → 进编辑器（稍延确保 store 更新完成）
+  // === 状态机核心：数据状态 → 视图状态的双向同步 ===
   useEffect(() => {
     if (state.activeNoteId) {
-      setTimeout(() => setView('editor'), 0)
+      // 有活跃笔记 → 进编辑器
+      if (view !== 'editor') setView('editor')
+    } else if (view === 'editor') {
+      // 活跃笔记消失（删除/清空）→ 回列表
+      setView('list')
     }
-  }, [state.activeNoteId])
+  }, [state.activeNoteId]) // eslint-disable-line
 
   const openNewNote = () => {
-    dispatch({ type: 'CREATE_NOTE' })
+    // 前 3 次新建笔记时显示模板选择器（帮助用户发现模板功能）
+    const createCount = parseInt(localStorage.getItem('shimo-create-count') || '0')
+    if (createCount < 3) {
+      localStorage.setItem('shimo-create-count', String(createCount + 1))
+      setShowTemplates(true)
+    } else {
+      dispatch({ type: 'CREATE_NOTE' })
+    }
   }
 
   const closeEditor = () => {
     dispatch({ type: 'SET_ACTIVE_NOTE', noteId: null })
-    setView('list')
+    // view 会通过上面的 useEffect 自动切回 list
+  }
+
+  // === 渲染 ===
+
+  if (showOnboarding) {
+    return <Onboarding onDone={() => setShowOnboarding(false)} />
   }
 
   if (view === 'editor') {
     return (
-      <NoteEditor onBack={closeEditor} onShowGraph={() => setView('graph')} />
+      <NoteEditor
+        onBack={closeEditor}
+        onShowGraph={() => setView('graph')}
+        onGoToSettings={() => { closeEditor(); setTimeout(() => setView('settings'), 100) }}
+      />
     )
   }
 
@@ -105,8 +142,8 @@ function App() {
     <div className="app-shell">
       {/* 主内容 */}
       <div className="app-content">
-        {view === 'list' && <NoteList onNewNote={openNewNote} onSelectNote={() => setView('editor')} onRefresh={triggerSync} />}
-        {view === 'search'   && <SearchPage onSelectNote={() => setView('editor')} />}
+        {view === 'list' && <NoteList onNewNote={openNewNote} onSelectNote={() => {}} onRefresh={triggerSync} />}
+        {view === 'search' && <SearchPage onSelectNote={() => {}} />}
         {view === 'settings' && (
           <SettingsPage
             user={user} syncStatus={syncStatus}
@@ -129,7 +166,7 @@ function App() {
         {view === 'graph' && (
           <Suspense fallback={null}>
             <NoteGraphPage
-              onSelectNote={() => setView('editor')}
+              onSelectNote={() => {}}
               centerNoteId={state.activeNoteId || undefined}
             />
           </Suspense>
@@ -137,34 +174,49 @@ function App() {
       </div>
 
       {/* 底部导航 */}
-      <nav className="bottom-nav">
-        <button className={`nav-item ${view === 'list' ? 'active' : ''}`} onClick={() => setView('list')}>
-          <span className="nav-icon">📋</span>
-          <span>笔记</span>
-        </button>
-        <button className={`nav-item ${view === 'search' ? 'active' : ''}`} onClick={() => setView('search')}>
-          <span className="nav-icon">🔍</span>
-          <span>搜索</span>
-        </button>
-        <button className={`nav-item ${view === 'graph' ? 'active' : ''}`} onClick={() => setView('graph')}>
-          <span className="nav-icon">◎</span>
-          <span>图谱</span>
-        </button>
-        <button className={`nav-item ${view === 'ask' ? 'active' : ''}`} onClick={() => setView('ask')}>
-          <span className="nav-icon">✦</span>
-          <span>问</span>
-        </button>
-        <button className={`nav-item ${view === 'settings' ? 'active' : ''}`} onClick={() => setView('settings')}>
-          <span className="nav-icon">⚙</span>
-          <span>设置</span>
-        </button>
-      </nav>
+      {showBottomNav(view) && (
+        <nav className="bottom-nav">
+          <button className={`nav-item ${view === 'list' ? 'active' : ''}`} onClick={() => setView('list')}>
+            <span className="nav-icon">📋</span>
+            <span>笔记</span>
+          </button>
+          <button className={`nav-item ${view === 'search' ? 'active' : ''}`} onClick={() => setView('search')}>
+            <span className="nav-icon">🔍</span>
+            <span>搜索</span>
+          </button>
+          <button className={`nav-item ${view === 'graph' ? 'active' : ''}`} onClick={() => setView('graph')}>
+            <span className="nav-icon">◎</span>
+            <span>图谱</span>
+          </button>
+          <button className={`nav-item ${view === 'ask' ? 'active' : ''}`} onClick={() => setView('ask')}>
+            <span className="nav-icon">✦</span>
+            <span>问</span>
+          </button>
+          <button className={`nav-item ${view === 'settings' ? 'active' : ''}`} onClick={() => setView('settings')}>
+            <span className="nav-icon">⚙</span>
+            <span>设置</span>
+          </button>
+        </nav>
+      )}
 
-      {/* FAB */}
-      {view === 'list' && (
-        <button className="fab" onClick={openNewNote} aria-label="新建笔记">
+      {/* FAB — 点击新建，长按选模板 */}
+      {showFab(view) && (
+        <button
+          className="fab"
+          onClick={openNewNote}
+          onContextMenu={e => { e.preventDefault(); setShowTemplates(true) }}
+          aria-label="新建笔记（长按选模板）"
+        >
           <span style={{ fontSize: 24, lineHeight: 1 }}>+</span>
         </button>
+      )}
+
+      {/* 模板选择器 */}
+      {showTemplates && (
+        <TemplatePicker
+          onClose={() => setShowTemplates(false)}
+          onCreated={() => setShowTemplates(false)}
+        />
       )}
 
       {/* Auth 弹窗 */}

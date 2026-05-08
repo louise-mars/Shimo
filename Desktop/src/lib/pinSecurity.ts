@@ -2,6 +2,9 @@
  * PIN 安全模块
  * - SHA-256 哈希存储（不存明文）
  * - 锁定状态用签名防篡改
+ * 
+ * 注意：这是客户端安全，无法防御有 DevTools 访问权限的攻击者。
+ * 设计目标是防止日常场景下的偷看，不是防御专业攻击。
  */
 
 const PIN_HASH_KEY = 'shimo-pin-hash'
@@ -9,8 +12,20 @@ const ATTEMPTS_KEY = 'shimo-pin-attempts'
 const LOCK_SECRET = 'shimo-lock-2026' // 简单签名防直接清除
 
 async function sha256(text: string): Promise<string> {
-  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text))
-  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('')
+  // crypto.subtle 在非安全上下文中不可用，提供 fallback
+  if (typeof crypto !== 'undefined' && crypto.subtle) {
+    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text))
+    return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('')
+  }
+  // Fallback: 简单哈希（不如 SHA-256 安全，但至少不存明文）
+  let hash = 0
+  const str = text + LOCK_SECRET + text
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i)
+    hash = ((hash << 5) - hash) + char
+    hash = hash & hash // Convert to 32bit integer
+  }
+  return 'fb_' + Math.abs(hash).toString(16).padStart(8, '0') + str.length.toString(16).padStart(4, '0')
 }
 
 export async function setPinHash(pin: string): Promise<void> {
@@ -21,6 +36,8 @@ export async function setPinHash(pin: string): Promise<void> {
 }
 
 export async function verifyPin(pin: string): Promise<boolean> {
+  if (!pin || pin.length < 4) return false
+  
   const stored = localStorage.getItem(PIN_HASH_KEY)
   if (!stored) {
     // 兼容旧版明文 PIN
@@ -70,6 +87,11 @@ export function getAttempts(): { count: number; lockedUntil: number } {
     if (data.sig !== signAttempts(data.count, data.lockedUntil)) {
       // 签名不匹配，可能被篡改，重置为最严格锁定
       return { count: 10, lockedUntil: Date.now() + 30 * 60 * 1000 }
+    }
+    // 如果锁定已过期，自动重置
+    if (data.lockedUntil > 0 && data.lockedUntil <= Date.now()) {
+      resetAttempts()
+      return { count: 0, lockedUntil: 0 }
     }
     return { count: data.count, lockedUntil: data.lockedUntil }
   } catch {
