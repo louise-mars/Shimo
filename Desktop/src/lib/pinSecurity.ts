@@ -1,6 +1,7 @@
 /**
  * PIN 安全模块
  * - SHA-256 哈希存储（不存明文）
+ * - 每设备随机盐值（不在源码中暴露）
  * - 锁定状态用签名防篡改
  * 
  * 注意：这是客户端安全，无法防御有 DevTools 访问权限的攻击者。
@@ -9,27 +10,53 @@
 
 const PIN_HASH_KEY = 'shimo-pin-hash'
 const ATTEMPTS_KEY = 'shimo-pin-attempts'
-const LOCK_SECRET = 'shimo-lock-2026' // 简单签名防直接清除
+const DEVICE_SECRET_KEY = 'shimo-device-secret'
+
+// Legacy secret for migration from old hardcoded version
+const LEGACY_SECRET = 'shimo-lock-2026'
+
+/**
+ * Get or generate a per-device random secret.
+ * This secret is unique to each device/browser and never appears in source code.
+ */
+function getDeviceSecret(): string {
+  let secret = localStorage.getItem(DEVICE_SECRET_KEY)
+  if (!secret) {
+    // Generate a cryptographically random 32-byte hex string
+    if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+      const bytes = new Uint8Array(32)
+      crypto.getRandomValues(bytes)
+      secret = Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('')
+    } else {
+      // Fallback: less secure but still unique per device
+      secret = Date.now().toString(36) + Math.random().toString(36).slice(2) +
+               Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2)
+    }
+    localStorage.setItem(DEVICE_SECRET_KEY, secret)
+  }
+  return secret
+}
 
 async function sha256(text: string): Promise<string> {
-  // crypto.subtle 在非安全上下文中不可用，提供 fallback
   if (typeof crypto !== 'undefined' && crypto.subtle) {
     const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text))
     return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('')
   }
-  // Fallback: 简单哈希（不如 SHA-256 安全，但至少不存明文）
+  // Fallback: simple hash (not as secure as SHA-256, but doesn't store plaintext)
   let hash = 0
-  const str = text + LOCK_SECRET + text
+  const secret = getDeviceSecret()
+  const str = text + secret + text
   for (let i = 0; i < str.length; i++) {
     const char = str.charCodeAt(i)
     hash = ((hash << 5) - hash) + char
-    hash = hash & hash // Convert to 32bit integer
+    hash = hash & hash
   }
   return 'fb_' + Math.abs(hash).toString(16).padStart(8, '0') + str.length.toString(16).padStart(4, '0')
 }
 
 export async function setPinHash(pin: string): Promise<void> {
-  const hash = await sha256(pin + LOCK_SECRET)
+  const secret = getDeviceSecret()
+  const hash = await sha256(pin + secret)
   localStorage.setItem(PIN_HASH_KEY, hash)
   // 迁移：清除旧明文 PIN
   localStorage.removeItem('shimo-app-pin')
@@ -44,7 +71,7 @@ export async function verifyPin(pin: string): Promise<boolean> {
     const oldPin = localStorage.getItem('shimo-app-pin')
     if (oldPin) {
       if (pin === oldPin) {
-        // 迁移到哈希
+        // 迁移到新格式
         await setPinHash(pin)
         return true
       }
@@ -52,8 +79,21 @@ export async function verifyPin(pin: string): Promise<boolean> {
     }
     return false
   }
-  const hash = await sha256(pin + LOCK_SECRET)
-  return hash === stored
+
+  // Try current device secret first
+  const secret = getDeviceSecret()
+  const hash = await sha256(pin + secret)
+  if (hash === stored) return true
+
+  // Migration: try legacy hardcoded secret (for users upgrading from old version)
+  const legacyHash = await sha256(pin + LEGACY_SECRET)
+  if (legacyHash === stored) {
+    // Re-hash with new device secret
+    await setPinHash(pin)
+    return true
+  }
+
+  return false
 }
 
 export function hasPinConfigured(): boolean {
@@ -64,6 +104,7 @@ export function clearPin(): void {
   localStorage.removeItem(PIN_HASH_KEY)
   localStorage.removeItem('shimo-app-pin')
   localStorage.removeItem(ATTEMPTS_KEY)
+  // Note: we keep DEVICE_SECRET_KEY so it can be reused if PIN is set again
 }
 
 // 锁定逻辑（带签名防篡改）
@@ -74,8 +115,16 @@ interface AttemptsData {
 }
 
 function signAttempts(count: number, lockedUntil: number): string {
-  // 简单签名：防止用户直接编辑 localStorage 绕过
-  return btoa(`${count}:${lockedUntil}:${LOCK_SECRET}`).slice(0, 16)
+  const secret = getDeviceSecret()
+  // HMAC-like signature using device secret
+  const payload = `${count}:${lockedUntil}:${secret}`
+  // Simple hash of the payload for signing
+  let h = 0
+  for (let i = 0; i < payload.length; i++) {
+    h = ((h << 5) - h) + payload.charCodeAt(i)
+    h = h & h
+  }
+  return Math.abs(h).toString(36).padStart(10, '0').slice(0, 12)
 }
 
 export function getAttempts(): { count: number; lockedUntil: number } {

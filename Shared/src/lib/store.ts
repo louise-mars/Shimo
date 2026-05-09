@@ -50,6 +50,39 @@ export type StoreAction =
 
 // === Helpers ===
 
+/** Replace #oldTag with #newTag inside TipTap JSON content */
+function replaceTagInContent(content: string, oldTag: string, newTag: string): string {
+  if (!content) return content
+  try {
+    const doc = JSON.parse(content)
+    const replaced = replaceTagInNode(doc, oldTag, newTag)
+    return JSON.stringify(replaced)
+  } catch {
+    // Fallback: plain text content (shouldn't happen, but safe)
+    return content.replace(new RegExp(`#${escapeRegex(oldTag)}(?=[\\s,;.!?，。；！？]|$)`, 'g'), `#${newTag}`)
+  }
+}
+
+function replaceTagInNode(node: any, oldTag: string, newTag: string): any {
+  if (node.text) {
+    // Replace #oldTag with #newTag in text nodes
+    // Match #tag followed by a non-tag character or end of string
+    const pattern = new RegExp(`#${escapeRegex(oldTag)}(?![\\u4e00-\\u9fa5\\w])`, 'g')
+    const patternEnd = new RegExp(`#${escapeRegex(oldTag)}$`)
+    let newText = node.text.replace(pattern, `#${newTag}`)
+    newText = newText.replace(patternEnd, `#${newTag}`)
+    return { ...node, text: newText }
+  }
+  if (node.content) {
+    return { ...node, content: node.content.map((child: any) => replaceTagInNode(child, oldTag, newTag)) }
+  }
+  return node
+}
+
+function escapeRegex(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
 export function makeNote(folderId?: string | null): Note {
   return {
     id: uuid(),
@@ -251,10 +284,15 @@ export function storeReducer(state: StoreState, action: StoreAction): StoreState
     case 'RENAME_TAG':
       return {
         ...state,
-        notes: state.notes.map(n => ({
-          ...n,
-          tags: n.tags.map(t => t === action.oldTag ? action.newTag : t),
-        })),
+        notes: state.notes.map(n => {
+          const hasTag = n.tags.includes(action.oldTag)
+          if (!hasTag) return n
+          // Update the tags array
+          const newTags = n.tags.map(t => t === action.oldTag ? action.newTag : t)
+          // Update #tag references inside the TipTap content text
+          const newContent = replaceTagInContent(n.content, action.oldTag, action.newTag)
+          return { ...n, tags: newTags, content: newContent, updatedAt: Date.now() }
+        }),
         activeTag: state.activeTag === action.oldTag ? action.newTag : state.activeTag,
       }
 
