@@ -111,6 +111,9 @@ function rowToFolder(row: Record<string, unknown>): Folder {
     name: row.name as string,
     emoji: row.emoji as string,
     parentId: (row.parent_id as string) || null,
+    order: (row.sort_order as number) ?? 0,
+    createdAt: row.created_at ? new Date(row.created_at as string).getTime() : Date.now(),
+    updatedAt: row.updated_at ? new Date(row.updated_at as string).getTime() : Date.now(),
   }
 }
 
@@ -232,7 +235,7 @@ export async function fullSync(
 
   // Merge folders: remote wins (simpler, folders change rarely)
   const mergedFolders: Folder[] = [
-    { id: 'default', name: 'All Notes', emoji: '📒', parentId: null },
+    { id: 'default', name: 'All Notes', emoji: '📒', parentId: null, order: 0, createdAt: 0, updatedAt: 0 },
     ...remote.folders,
   ]
   // Add any local-only folders

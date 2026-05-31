@@ -366,6 +366,7 @@ NotePro/
 - 移动端编辑器"加载中…"卡死 — 视图状态双向同步 + NoteNotFound 自动返回
 - 加密笔记解锁按钮无效 — crypto.subtle fallback + 重新检查锁定状态
 - 语音输入无响应 — 改用 MediaRecorder + 在线 ASR（绕开 Google 服务限制）
+- 语音输入零配置 — 添加 Web Speech API fallback，未配置 ASR 时自动使用浏览器语音识别
 - 删除冗余 MobileEditor.tsx
 
 ### 工程经验文档
@@ -455,9 +456,27 @@ NotePro/
 - Desktop EXE: `Desktop/src-tauri/target/release/bundle/nsis/Shimo_0.1.0_x64-setup.exe`
 - Mobile APK: `Mobile/android/app/build/outputs/apk/debug/app-debug.apk`
 
+### 移动端编辑器扩展补齐
+- ✅ Highlight 高亮扩展（与桌面端一致）
+- ✅ Typography 排版扩展（智能引号等）
+- ✅ Table 表格支持（Table/TableRow/TableCell/TableHeader）
+
+### 同步引擎增强（2026年5月）
+- **冲突 UI 暴露** — `useSync` 新增 `SyncConflict` 接口（local/remote Note 对），`conflicts` 状态和 `dismissConflicts` 回调，供 UI 层展示冲突解决面板
+- **指数退避重试** — 同步失败后自动重试（最多 5 次，延迟 5s → 10s → 20s → 40s → 80s，上限 2 分钟），成功后重置计数
+- **返回值扩展** — `useSync` 现在返回 `{ user, syncStatus, syncError, isConfigured, signOut, triggerSync, conflicts, dismissConflicts }`
+- **MERGE_SYNC 字段级合并** — 从简单 per-note LWW 升级为字段级合并：远程内容更新时保留本地 pinned/favorited 状态，避免用户在设备 A 置顶的笔记被设备 B 的内容编辑覆盖回去
+
+### 笔记版本历史 UI（NoteHistory 组件）
+- 模态弹窗展示快照列表（左侧时间线 + 右侧内容预览）
+- 支持恢复历史版本（恢复前自动保存当前版本为快照）
+- 时间格式化（今天/昨天/日期 + 时间）
+- 内容预览（解析 TipTap JSON 提取纯文本，截取前 120 字）
+- 依赖 `@notepro/shared` 的 `getHistory` 和 `forceSnapshot`
+
 ### 已知限制
-- 语音输入需要配置在线 ASR 服务（国内推荐硅基流动）
+- 语音输入：移动版支持 Web Speech API 零配置 fallback（无需配置即可使用），桌面版因 Tauri WebView 限制暂不支持
+- AI 结构化功能需要配置在线 ASR 服务（国内推荐硅基流动）
 - AI 功能需要配置 API Key
 - 同步需要自建 Supabase
 - iOS 版未开发
-- 桌面版无语音输入（Tauri WebView 限制）

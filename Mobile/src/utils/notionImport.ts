@@ -71,7 +71,7 @@ export async function importNotionZip(file: File): Promise<NotionImportResult> {
       const name = cleanNotionFilename(parts[parts.length - 1])
       if (name) {
         folderMap.set(folderPath, id)
-        folders.push({ id, name, emoji: '📁', parentId: null })
+        folders.push({ id, name, emoji: '📁', parentId: null, order: folders.length, createdAt: Date.now(), updatedAt: Date.now() })
       }
     }
   }
@@ -137,7 +137,7 @@ export async function importObsidianFolder(files: FileList): Promise<NotionImpor
       if (!folderMap.has(folderName)) {
         const id = uuid()
         folderMap.set(folderName, id)
-        folders.push({ id, name: folderName, emoji: '📁', parentId: null })
+        folders.push({ id, name: folderName, emoji: '📁', parentId: null, order: folders.length, createdAt: Date.now(), updatedAt: Date.now() })
       }
       folderId = folderMap.get(folderName) ?? null
     }

@@ -12,6 +12,10 @@ import { TextStyle } from '@tiptap/extension-text-style'
 import { FontFamily } from '@tiptap/extension-font-family'
 import { Link } from '@tiptap/extension-link'
 import { Underline } from '@tiptap/extension-underline'
+import { Table } from '@tiptap/extension-table'
+import { TableRow } from '@tiptap/extension-table-row'
+import { TableCell } from '@tiptap/extension-table-cell'
+import { TableHeader } from '@tiptap/extension-table-header'
 import { Extension } from '@tiptap/core'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
@@ -20,12 +24,17 @@ import { findRelatedNotes, getNudgeText } from '../lib/relations'
 import { extractTags, wordCount } from '@notepro/shared'
 import { noteToMarkdown } from '@notepro/shared'
 import { exportAsPDF } from '../lib/exportData'
-import { saveImage } from '@notepro/shared'
+import { maybeSnapshot } from '@notepro/shared'
+import { computeDebounceMs, SmartSerializer } from '@notepro/shared'
+import { createImageStore, compressImage, shouldCompress } from '@notepro/shared'
+import type { IImageStore, TipTapDocument } from '@notepro/shared'
 import FallingPetals from './FallingPetals'
 import TagSuggestion from './TagSuggestion'
 import ConfirmDialog from './ConfirmDialog'
 import SlashMenu from './SlashMenu'
 import FloatingToolbar from './FloatingToolbar'
+import VoiceInput from './VoiceInput'
+import NoteHistory from './NoteHistory'
 import { verifyPin, setPinHash, hasPinConfigured, clearPin, getAttempts, recordFailedAttempt, resetAttempts } from '../lib/pinSecurity'
 
 // #标签 高亮 (optimized: only recompute when doc changes)
@@ -74,12 +83,75 @@ function getAmbience() {
   return                         { placeholder: '夜深人静，与自己对话…', petals: true }
 }
 
+// TextAlign extension (left/center/right)
+const TextAlign = Extension.create({
+  name: 'textAlign',
+  addOptions() { return { types: ['heading', 'paragraph'] } },
+  addGlobalAttributes() {
+    return [{
+      types: this.options.types,
+      attributes: {
+        textAlign: {
+          default: 'left',
+          parseHTML: element => element.style.textAlign || 'left',
+          renderHTML: attributes => {
+            if (attributes.textAlign === 'left') return {}
+            return { style: `text-align: ${attributes.textAlign}` }
+          },
+        },
+      },
+    }]
+  },
+  addCommands() {
+    return {
+      setTextAlign: (alignment: string) => ({ commands }: { commands: any }) => {
+        return this.options.types.every((type: string) =>
+          commands.updateAttributes(type, { textAlign: alignment })
+        )
+      },
+    } as any
+  },
+})
+
+// FontSize extension via TextStyle mark
+const FontSize = Extension.create({
+  name: 'fontSize',
+  addOptions() { return { types: ['textStyle'] } },
+  addGlobalAttributes() {
+    return [{
+      types: this.options.types,
+      attributes: {
+        fontSize: {
+          default: null,
+          parseHTML: element => element.style.fontSize?.replace(/['"]+/g, '') || null,
+          renderHTML: attributes => {
+            if (!attributes.fontSize) return {}
+            return { style: `font-size: ${attributes.fontSize}` }
+          },
+        },
+      },
+    }]
+  },
+  addCommands() {
+    return {
+      setFontSize: (size: string) => ({ chain }) => {
+        return chain().setMark('textStyle', { fontSize: size }).run()
+      },
+      unsetFontSize: () => ({ chain }) => {
+        return chain().setMark('textStyle', { fontSize: null }).removeEmptyTextStyle().run()
+      },
+    }
+  },
+})
+
 export default function NoteEditor() {
   const { state, dispatch } = useStore()
   const note = state.notes.find(n => n.id === state.activeNoteId)
   const titleRef = useRef<HTMLInputElement>(null)
   const saveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const nudgeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const smartSerializer = useRef(new SmartSerializer())
+  const imageStoreRef = useRef<IImageStore | null>(null)
   const [relatedNotes, setRelatedNotes] = useState<import('../lib/relations').RelatedNote[]>([])
   const [nudgeDismissed, setNudgeDismissed] = useState<string | null>(null)
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'idle'>('idle')
@@ -96,6 +168,7 @@ export default function NoteEditor() {
   const [deletedNoteId, setDeletedNoteId] = useState<string | null>(null)
   const [slashOpen, setSlashOpen] = useState(false)
   const [immersive, setImmersive] = useState(false)
+  const [showHistory, setShowHistory] = useState(false)
   const [linkInputOpen, setLinkInputOpen] = useState(false)
   const [linkUrl, setLinkUrl] = useState('')
   const [imgResizeTarget, setImgResizeTarget] = useState<HTMLImageElement | null>(null)
@@ -131,8 +204,14 @@ export default function NoteEditor() {
       TextStyle,
       Color,
       FontFamily,
+      FontSize,
+      TextAlign,
       Link.configure({ openOnClick: false, HTMLAttributes: { class: 'editor-link' } }),
       Underline,
+      Table.configure({ resizable: true }),
+      TableRow,
+      TableCell,
+      TableHeader,
       TagHighlight,
     ],
     content: '',
@@ -148,21 +227,26 @@ export default function NoteEditor() {
         }
       } catch { /* ignore */ }
       setSaveStatus('saving')
-      // Reset immersive timer
+      // Reset immersive timer on typing
       if (immersiveTimer.current) clearTimeout(immersiveTimer.current)
       setImmersive(false)
       immersiveTimer.current = setTimeout(() => setImmersive(true), 15000)
       if (saveTimer.current) clearTimeout(saveTimer.current)
-      // Longer debounce for large notes
-      const textLen = ed.getText().length
-      const debounce = textLen > 3000 ? 1000 : 300
+      // Adaptive debounce using shared computeDebounceMs
+      const doc = ed.getJSON() as TipTapDocument
+      const serializer = smartSerializer.current
+      const result = serializer.serializeDocument(doc)
+      const debounce = computeDebounceMs(result.json)
       saveTimer.current = setTimeout(() => {
-        const content = JSON.stringify(ed.getJSON())
+        const content = result.json
         const tags = extractTags(content)
         dispatch({ type: 'UPDATE_NOTE', noteId: note.id, updates: { content, tags } })
         updateRelated(note.id)
         setSaveStatus('saved')
         setTimeout(() => setSaveStatus('idle'), 2000)
+        // Auto-snapshot (runs in background, non-blocking)
+        const textLen = ed.getText().length
+        maybeSnapshot(note.id, note.title, content, textLen).catch(() => {})
       }, debounce)
     },
   })
@@ -171,6 +255,8 @@ export default function NoteEditor() {
   useEffect(() => {
     if (!editor) return
     if (!note) { editor.commands.clearContent(); return }
+    // Reset serializer cache when switching notes
+    smartSerializer.current.reset()
     try {
       editor.commands.setContent(note.content ? JSON.parse(note.content) : '')
     } catch { editor.commands.clearContent() }
@@ -201,6 +287,29 @@ export default function NoteEditor() {
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
   }, [note, dispatch])
+
+  // Listen for AI text insertion events
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const text = (e as CustomEvent<string>).detail
+      if (editor && text) {
+        editor.chain().focus().insertContent(text).run()
+      }
+    }
+    window.addEventListener('shimo-insert-text', handler)
+    return () => window.removeEventListener('shimo-insert-text', handler)
+  }, [editor])
+
+  // Immersive mode: reset timer on any mouse movement (15s idle → immersive)
+  useEffect(() => {
+    const handleMouseMove = () => {
+      if (immersiveTimer.current) clearTimeout(immersiveTimer.current)
+      if (immersive) setImmersive(false)
+      immersiveTimer.current = setTimeout(() => setImmersive(true), 15000)
+    }
+    window.addEventListener('mousemove', handleMouseMove)
+    return () => window.removeEventListener('mousemove', handleMouseMove)
+  }, [immersive])
 
   // Cleanup timers on unmount
   useEffect(() => {
@@ -621,6 +730,23 @@ export default function NoteEditor() {
               <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
             </svg>
           </button>
+          {/* 版本历史 */}
+          <button
+            onClick={() => setShowHistory(true)}
+            title="版本历史"
+            aria-label="版本历史"
+            style={{
+              width: 34, height: 34, border: 'none', borderRadius: 7,
+              background: 'transparent', color: 'var(--text-faint)',
+              cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              transition: 'all 0.15s',
+            }}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10" />
+              <polyline points="12 6 12 12 16 14" />
+            </svg>
+          </button>
           {/* 导出 PDF */}
           <button
             onClick={() => exportAsPDF(note)}
@@ -823,20 +949,67 @@ export default function NoteEditor() {
               fontSize: 14, transition: 'all 0.1s',
             }}>✦</button>
 
+          {/* 行内代码 */}
+          <button onClick={() => editor.chain().focus().toggleCode().run()}
+            title="行内代码 (Ctrl+E)"
+            style={{
+              width: 32, height: 30, border: 'none', borderRadius: 5,
+              background: editor.isActive('code') ? 'var(--accent-bg)' : 'transparent',
+              color: editor.isActive('code') ? 'var(--accent)' : 'var(--text-secondary)',
+              cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 11, fontFamily: 'monospace', transition: 'all 0.1s',
+            }}>{`<>`}</button>
+
+          <div style={{ width: 1, height: 18, background: 'var(--border-light)', margin: '0 6px', flexShrink: 0 }} />
+
+          {/* 对齐 */}
+          {[
+            { label: '≡', title: '左对齐', align: 'left' },
+            { label: '≡', title: '居中', align: 'center' },
+            { label: '≡', title: '右对齐', align: 'right' },
+          ].map(a => (
+            <button key={a.align} onClick={() => (editor.commands as any).setTextAlign(a.align)}
+              title={a.title}
+              style={{
+                width: 28, height: 30, border: 'none', borderRadius: 5,
+                background: editor.getAttributes('paragraph').textAlign === a.align || editor.getAttributes('heading').textAlign === a.align ? 'var(--accent-bg)' : 'transparent',
+                color: editor.getAttributes('paragraph').textAlign === a.align || editor.getAttributes('heading').textAlign === a.align ? 'var(--accent)' : 'var(--text-secondary)',
+                cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: 14, transition: 'all 0.1s',
+                textAlign: a.align as any,
+              }}>{a.align === 'left' ? '⫷' : a.align === 'center' ? '⫿' : '⫸'}</button>
+          ))}
+
+          <div style={{ width: 1, height: 18, background: 'var(--border-light)', margin: '0 6px', flexShrink: 0 }} />
+
+          {/* 插入表格 */}
+          <button onClick={() => editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()}
+            title="插入表格"
+            style={{
+              width: 32, height: 30, border: 'none', borderRadius: 5,
+              background: editor.isActive('table') ? 'var(--accent-bg)' : 'transparent',
+              color: editor.isActive('table') ? 'var(--accent)' : 'var(--text-secondary)',
+              cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 13, transition: 'all 0.1s',
+            }}>▦</button>
+
           {/* 插入图片 */}
           <button onClick={() => {
             const input = document.createElement('input')
             input.type = 'file'
             input.accept = 'image/*'
-            input.onchange = () => {
+            input.onchange = async () => {
               const file = input.files?.[0]
               if (!file) return
-              const reader = new FileReader()
-              reader.onload = async () => {
-                const src = await saveImage(reader.result as string)
-                editor.chain().focus().setImage({ src }).run()
+              const store = imageStoreRef.current || (imageStoreRef.current = createImageStore())
+              let blob: Blob = file
+              if (shouldCompress(blob)) {
+                blob = await compressImage(blob)
               }
-              reader.readAsDataURL(file)
+              const ext = file.name.split('.').pop() || 'png'
+              const assetUri = await store.save(blob, ext)
+              if (note) await store.addRef(assetUri, note.id)
+              editor.chain().focus().setImage({ src: assetUri }).run()
             }
             input.click()
           }}
@@ -847,6 +1020,13 @@ export default function NoteEditor() {
               cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
               fontSize: 14, transition: 'all 0.1s',
             }}>🖼</button>
+
+          {/* 语音输入 */}
+          <VoiceInput
+            onText={(text) => {
+              if (editor) editor.chain().focus().insertContent(text).run()
+            }}
+          />
 
           <div style={{ width: 1, height: 18, background: 'var(--border-light)', margin: '0 6px', flexShrink: 0 }} />
 
@@ -875,6 +1055,32 @@ export default function NoteEditor() {
 
           {/* 字体/大小选择 */}
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <select
+              value={editor.getAttributes('textStyle').fontSize || ''}
+              onChange={e => {
+                const v = e.target.value
+                if (v) (editor.commands as any).setFontSize(v)
+                else (editor.commands as any).unsetFontSize()
+              }}
+              title="字号"
+              style={{
+                padding: '4px 8px', fontSize: 11, border: '1px solid var(--border-light)',
+                borderRadius: 5, background: 'var(--bg-elevated)', color: 'var(--text-secondary)',
+                fontFamily: 'var(--font-num)', cursor: 'pointer', outline: 'none',
+                width: 60,
+              }}
+            >
+              <option value="">默认</option>
+              <option value="12px">12</option>
+              <option value="14px">14</option>
+              <option value="16px">16</option>
+              <option value="18px">18</option>
+              <option value="20px">20</option>
+              <option value="24px">24</option>
+              <option value="28px">28</option>
+              <option value="32px">32</option>
+            </select>
+
             <select
               value={editor.getAttributes('textStyle').fontFamily || ''}
               onChange={e => {
@@ -996,10 +1202,16 @@ export default function NoteEditor() {
           const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'))
           if (!files.length) return
           e.preventDefault()
-          files.forEach(f => {
-            const r = new FileReader()
-            r.onload = async () => { const src = await saveImage(r.result as string); editor.chain().focus().setImage({ src }).run() }
-            r.readAsDataURL(f)
+          const store = imageStoreRef.current || (imageStoreRef.current = createImageStore())
+          files.forEach(async f => {
+            let blob: Blob = f
+            if (shouldCompress(blob)) {
+              blob = await compressImage(blob)
+            }
+            const ext = f.name.split('.').pop() || 'png'
+            const assetUri = await store.save(blob, ext)
+            if (note) await store.addRef(assetUri, note.id)
+            editor.chain().focus().setImage({ src: assetUri }).run()
           })
         }}
         onDragOver={e => e.preventDefault()}
@@ -1008,12 +1220,20 @@ export default function NoteEditor() {
           const items = Array.from(e.clipboardData.items).filter(i => i.type.startsWith('image/'))
           if (!items.length) return
           e.preventDefault()
+          const store = imageStoreRef.current || (imageStoreRef.current = createImageStore())
           items.forEach(i => {
             const f = i.getAsFile()
             if (!f) return
-            const r = new FileReader()
-            r.onload = async () => { const src = await saveImage(r.result as string); editor.chain().focus().setImage({ src }).run() }
-            r.readAsDataURL(f)
+            ;(async () => {
+              let blob: Blob = f
+              if (shouldCompress(blob)) {
+                blob = await compressImage(blob)
+              }
+              const ext = f.type.split('/')[1] || 'png'
+              const assetUri = await store.save(blob, ext)
+              if (note) await store.addRef(assetUri, note.id)
+              editor.chain().focus().setImage({ src: assetUri }).run()
+            })()
           })
         }}
       >
@@ -1198,6 +1418,20 @@ export default function NoteEditor() {
             padding: '4px 12px', borderRadius: 4, fontSize: 12, cursor: 'pointer',
           }}>撤销</button>
         </div>
+      )}
+
+      {/* 版本历史面板 */}
+      {showHistory && note && (
+        <NoteHistory
+          note={note}
+          onRestore={(content) => {
+            dispatch({ type: 'UPDATE_NOTE', noteId: note.id, updates: { content } })
+            if (editor) {
+              try { editor.commands.setContent(JSON.parse(content)) } catch { /* ignore */ }
+            }
+          }}
+          onClose={() => setShowHistory(false)}
+        />
       )}
     </div>
   )

@@ -449,6 +449,33 @@
 .editor-content .tiptap img.img-full { max-width: 100%; }
 .editor-content .tiptap mark { background: rgba(143, 163, 166, 0.2); border-radius: 2px; padding: 0 2px; }
 
+/* 表格样式 */
+.editor-content .tiptap table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 0.8em 0;
+  font-size: 14px;
+}
+.editor-content .tiptap table td,
+.editor-content .tiptap table th {
+  border: 1px solid var(--border-medium);
+  padding: 8px 12px;
+  min-width: 80px;
+  vertical-align: top;
+}
+.editor-content .tiptap table th {
+  background: var(--bg-secondary);
+  font-weight: 600;
+  font-size: 13px;
+}
+.editor-content .tiptap table td p,
+.editor-content .tiptap table th p {
+  margin: 0;
+}
+.editor-content .tiptap .selectedCell {
+  background: var(--accent-light);
+}
+
 /* #标签 内联高亮 */
 .inline-tag {
   color: var(--accent-deep);
@@ -520,4 +547,40 @@
 .editor-content-wrap {
   display: flex;
   justify-content: center;
+}
+
+/* === 拖拽调整手柄 === */
+.resize-handle {
+  width: 4px;
+  cursor: col-resize;
+  flex-shrink: 0;
+  background: transparent;
+  position: relative;
+  z-index: 10;
+  transition: background 0.15s;
+}
+.resize-handle:hover,
+.resize-handle:active {
+  background: var(--accent-light);
+}
+
+/* === 面板展开按钮 === */
+.panel-expand-btn {
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 6px;
+  background: var(--bg-secondary);
+  color: var(--text-faint);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  transition: all 0.15s;
+  box-shadow: var(--shadow-sm);
+}
+.panel-expand-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
 }

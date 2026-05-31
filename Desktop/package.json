@@ -19,6 +19,8 @@
     "@sentry/react": "^10.50.0",
     "@supabase/supabase-js": "^2.104.0",
     "@tauri-apps/api": "^2.10.1",
+    "@tauri-apps/plugin-dialog": "^2.7.1",
+    "@tauri-apps/plugin-fs": "^2.5.1",
     "@tiptap/extension-bubble-menu": "^3.22.4",
     "@tiptap/extension-code-block-lowlight": "^3.22.4",
     "@tiptap/extension-color": "^3.22.4",
@@ -40,12 +42,15 @@
     "@tiptap/starter-kit": "^3.22.4",
     "@types/d3": "^7.4.3",
     "d3": "^7.9.0",
+    "immer": "^11.1.8",
     "jszip": "^3.10.1",
     "lowlight": "^3.3.0",
     "lucide-react": "^1.8.0",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
-    "uuid": "^14.0.0"
+    "react-window": "^2.2.7",
+    "uuid": "^14.0.0",
+    "zustand": "^5.0.14"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
@@ -55,6 +60,7 @@
     "@types/node": "^24.12.2",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
+    "@types/react-window": "^1.8.8",
     "@types/uuid": "^10.0.0",
     "@vitejs/plugin-react": "^6.0.1",
     "eslint": "^9.39.4",

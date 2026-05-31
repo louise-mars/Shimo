@@ -1,6 +1,5 @@
-import { useState, useEffect } from 'react'
-import { useStore } from '../store'
-import { supabase } from '@notepro/shared'
+import { useState, useEffect, useMemo } from 'react'
+import { useAppStore, supabase } from '@notepro/shared'
 import { isLockEnabled, enableLock, disableLock, hasPinSet } from './AppLock'
 import { clearPin } from '../lib/pinSecurity'
 
@@ -19,6 +18,36 @@ function loadAI(): AIConfig | null { try { const r = localStorage.getItem(AI_CON
 function saveAI(c: AIConfig) { localStorage.setItem(AI_CONFIG_KEY, JSON.stringify(c)) }
 function clearAI() { localStorage.removeItem(AI_CONFIG_KEY) }
 
+/** Estimate word count from TipTap JSON content string */
+function estimateWordCount(content: string): number {
+  if (!content) return 0
+  try {
+    // Extract text from TipTap JSON by stripping JSON structure
+    const textOnly = content.replace(/"type":"[^"]+"/g, '')
+      .replace(/"attrs":\{[^}]*\}/g, '')
+      .replace(/[{}\[\]",:]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+    // Chinese characters count as 1 word each, English words separated by spaces
+    const chinese = (textOnly.match(/[\u4e00-\u9fa5]/g) || []).length
+    const english = textOnly.replace(/[\u4e00-\u9fa5]/g, ' ').trim().split(/\s+/).filter(w => w.length > 0).length
+    return chinese + english
+  } catch {
+    return 0
+  }
+}
+
+/** Estimate storage usage from notes content */
+function estimateStorageBytes(notes: Array<{ content: string; title: string }>): number {
+  return notes.reduce((sum, n) => sum + (n.content?.length || 0) + (n.title?.length || 0), 0) * 2 // UTF-16 estimate
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
 interface Props {
   onClose: () => void
   user: import('@supabase/supabase-js').User | null
@@ -29,7 +58,11 @@ interface Props {
 }
 
 export default function SettingsPanel({ onClose, user, syncStatus, syncError, onSync, onSignOut }: Props) {
-  const { state, dispatch } = useStore()
+  // Use shared Zustand store for theme and notes
+  const theme = useAppStore((s) => s.theme)
+  const toggleTheme = useAppStore((s) => s.toggleTheme)
+  const notes = useAppStore((s) => s.notes)
+
   const [lockEnabled, setLockEnabled] = useState(isLockEnabled())
   const [pinSet, setPinSet] = useState(hasPinSet())
   const [sbUrl, setSbUrl] = useState(localStorage.getItem('shimo-sb-url') || '')
@@ -43,6 +76,16 @@ export default function SettingsPanel({ onClose, user, syncStatus, syncError, on
   const [aiKey, setAiKey] = useState(aiConfig?.apiKey || '')
   const [aiModel, setAiModel] = useState(aiConfig?.model || 'MiniMax-Text-01')
   const [aiSaved, setAiSaved] = useState(false)
+
+  // Computed stats from shared store
+  const stats = useMemo(() => {
+    const activeNotes = notes.filter(n => !n.deletedAt)
+    const totalNotes = activeNotes.length
+    const totalTags = new Set(activeNotes.flatMap(n => n.tags)).size
+    const totalWords = activeNotes.reduce((sum, n) => sum + estimateWordCount(n.content), 0)
+    const storageUsage = estimateStorageBytes(activeNotes)
+    return { totalNotes, totalTags, totalWords, storageUsage }
+  }, [notes])
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
@@ -64,6 +107,8 @@ export default function SettingsPanel({ onClose, user, syncStatus, syncError, on
       setLoginLoading(false)
     }
   }
+
+  const themeLabel = theme === 'dark' ? '深色' : theme === 'light' ? '浅色' : '跟随系统'
 
   const sectionTitle = (text: string) => (
     <div style={{
@@ -132,7 +177,7 @@ export default function SettingsPanel({ onClose, user, syncStatus, syncError, on
           borderBottom: '1px solid var(--border-light)', flexShrink: 0,
         }}>
           <span style={{ fontSize: 16, fontWeight: 600, color: 'var(--text-primary)', fontFamily: 'var(--font-serif)' }}>设置</span>
-          <button onClick={onClose} style={{
+          <button onClick={onClose} aria-label="关闭设置" style={{
             border: 'none', background: 'none', fontSize: 18,
             color: 'var(--text-faint)', cursor: 'pointer',
           }}>✕</button>
@@ -141,9 +186,11 @@ export default function SettingsPanel({ onClose, user, syncStatus, syncError, on
         {/* Body */}
         <div style={{ padding: '0 20px 20px', overflow: 'auto', flex: 1 }}>
 
+          {/* Theme section */}
           {sectionTitle('外观')}
-          {toggle('深色模式', state.theme === 'dark', () => dispatch({ type: 'TOGGLE_THEME' }))}
+          {row('主题模式', themeLabel, toggleTheme)}
 
+          {/* Sync section */}
           {sectionTitle('同步')}
           {user ? (
             <>
@@ -159,6 +206,7 @@ export default function SettingsPanel({ onClose, user, syncStatus, syncError, on
                   placeholder="邮箱"
                   value={loginEmail}
                   onChange={e => setLoginEmail(e.target.value)}
+                  aria-label="登录邮箱"
                   style={{
                     width: '100%', padding: '8px 10px', marginBottom: 6,
                     border: '1px solid var(--border-medium)', borderRadius: 6,
@@ -172,6 +220,7 @@ export default function SettingsPanel({ onClose, user, syncStatus, syncError, on
                   value={loginPassword}
                   onChange={e => setLoginPassword(e.target.value)}
                   onKeyDown={e => e.key === 'Enter' && handleLogin()}
+                  aria-label="登录密码"
                   style={{
                     width: '100%', padding: '8px 10px', marginBottom: 6,
                     border: '1px solid var(--border-medium)', borderRadius: 6,
@@ -203,6 +252,7 @@ export default function SettingsPanel({ onClose, user, syncStatus, syncError, on
                   placeholder="Supabase URL"
                   value={sbUrl}
                   onChange={e => setSbUrl(e.target.value)}
+                  aria-label="Supabase URL"
                   style={{
                     width: '100%', padding: '8px 10px', marginBottom: 6,
                     border: '1px solid var(--border-medium)', borderRadius: 6,
@@ -214,6 +264,7 @@ export default function SettingsPanel({ onClose, user, syncStatus, syncError, on
                   placeholder="Supabase Anon Key"
                   value={sbKey}
                   onChange={e => setSbKey(e.target.value)}
+                  aria-label="Supabase Anon Key"
                   style={{
                     width: '100%', padding: '8px 10px', marginBottom: 6,
                     border: '1px solid var(--border-medium)', borderRadius: 6,
@@ -239,6 +290,7 @@ export default function SettingsPanel({ onClose, user, syncStatus, syncError, on
             </>
           )}
 
+          {/* AI provider config */}
           {sectionTitle('AI')}
           <div style={{ padding: '8px 0' }}>
             <div style={{ display: 'flex', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
@@ -256,6 +308,7 @@ export default function SettingsPanel({ onClose, user, syncStatus, syncError, on
             <input
               type="password" placeholder="API Key" value={aiKey}
               onChange={e => setAiKey(e.target.value)}
+              aria-label="AI API Key"
               style={{
                 width: '100%', padding: '7px 10px', marginBottom: 6,
                 border: '1px solid var(--border-medium)', borderRadius: 6,
@@ -266,6 +319,7 @@ export default function SettingsPanel({ onClose, user, syncStatus, syncError, on
             <input
               placeholder="模型" value={aiModel}
               onChange={e => setAiModel(e.target.value)}
+              aria-label="AI 模型名称"
               style={{
                 width: '100%', padding: '7px 10px', marginBottom: 8,
                 border: '1px solid var(--border-medium)', borderRadius: 6,
@@ -294,6 +348,7 @@ export default function SettingsPanel({ onClose, user, syncStatus, syncError, on
             {aiConfig && <div style={{ fontSize: 11, color: 'var(--success)', marginTop: 6 }}>AI 已配置 · {aiConfig.provider}</div>}
           </div>
 
+          {/* Security section */}
           {sectionTitle('安全')}
           {toggle('App 启动锁', lockEnabled, () => {
             if (lockEnabled) {
@@ -318,10 +373,14 @@ export default function SettingsPanel({ onClose, user, syncStatus, syncError, on
             }
           })}
 
+          {/* Stats section */}
           {sectionTitle('数据')}
-          {row('笔记总数', `${state.notes.length} 条`)}
-          {row('标签总数', `${new Set(state.notes.flatMap(n => n.tags)).size} 个`)}
+          {row('笔记总数', `${stats.totalNotes} 条`)}
+          {row('标签总数', `${stats.totalTags} 个`)}
+          {row('总字数', `${stats.totalWords.toLocaleString()} 字`)}
+          {row('存储占用', formatBytes(stats.storageUsage))}
 
+          {/* Keyboard shortcuts reference */}
           {sectionTitle('快捷键')}
           {row('新建笔记', 'Ctrl+N')}
           {row('选择模板', 'Ctrl+T')}
@@ -330,6 +389,7 @@ export default function SettingsPanel({ onClose, user, syncStatus, syncError, on
           {row('命令菜单', '/ (编辑器内)')}
           {row('关闭编辑器', 'Esc')}
 
+          {/* About section */}
           {sectionTitle('关于')}
           {row('版本', 'v1.0.0')}
           {row('应用', '拾墨 Shimo')}

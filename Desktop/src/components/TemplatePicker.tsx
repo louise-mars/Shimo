@@ -1,4 +1,4 @@
-import { useStore } from '../store'
+import { useAppStore } from '@notepro/shared'
 import { v4 as uuid } from 'uuid'
 import type { Note } from '@notepro/shared'
 
@@ -76,13 +76,24 @@ const templates = [
 
 interface Props { onClose: () => void }
 
+/**
+ * Determines whether the template picker should be shown for new users.
+ * Returns true if the total number of non-deleted notes is <= 3.
+ */
+export function shouldShowTemplatePicker(): boolean {
+  const notes = useAppStore.getState().notes
+  const activeNotes = notes.filter(n => !n.deletedAt)
+  return activeNotes.length <= 3
+}
+
 export default function TemplatePicker({ onClose }: Props) {
-  const { dispatch } = useStore()
+  const importNotes = useAppStore((s) => s.importNotes)
+  const setActiveNote = useAppStore((s) => s.setActiveNote)
 
   const handleSelect = (tpl: typeof templates[0]) => {
     const note = tpl.create()
-    dispatch({ type: 'IMPORT_NOTES', notes: [note] })
-    dispatch({ type: 'SET_ACTIVE_NOTE', noteId: note.id })
+    importNotes([note])
+    setActiveNote(note.id)
     onClose()
   }
 

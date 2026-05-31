@@ -1,5 +1,6 @@
 import { useEffect, useCallback, useState, useRef, lazy, Suspense } from 'react'
 import { StoreProvider, useStore } from './store'
+import { useAppStore } from '@notepro/shared'
 import LeftSidebar from './components/LeftSidebar'
 import NoteList from './components/NoteList'
 const NoteEditor = lazy(() => import('./components/NoteEditor'))
@@ -10,9 +11,9 @@ import WeeklyReport from './components/WeeklyReport'
 import DailyReview from './components/DailyReview'
 import AskAI from './components/AskAI'
 import SettingsPanel from './components/SettingsPanel'
-import TemplatePicker from './components/TemplatePicker'
-import AppLock, { isLockEnabled, hasPinSet } from './components/AppLock'
-import ErrorBoundary from './components/ErrorBoundary'
+import TemplatePicker, { shouldShowTemplatePicker } from './components/TemplatePicker'
+import AppLock, { isLockEnabled, hasPinSet, useInactivityLock } from './components/AppLock'
+import { AppErrorBoundary, PanelErrorBoundary, ComponentErrorBoundary } from './components/ErrorBoundary'
 import WelcomeTip, { shouldShowTip } from './components/WelcomeTip'
 import { useSync } from './lib/useSync'
 import { initSentry } from './lib/sentry'
@@ -33,15 +34,21 @@ function Layout() {
   const [showDailyReview, setShowDailyReview] = useState(false)
   const [showAskAI, setShowAskAI] = useState(false)
   const [reviewReminder, setReviewReminder] = useState('')
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
-  const [listCollapsed, setListCollapsed] = useState(false)
   const [showWelcomeTip, setShowWelcomeTip] = useState(shouldShowTip)
 
-  const onMerge = useCallback((notes: any[]) => {
-    dispatch({ type: 'MERGE_SYNC', notes, folders: [], editingNoteId: state.activeNoteId })
-  }, [dispatch, state.activeNoteId])
+  // Panel visibility and width from Zustand store
+  const sidebarVisible = useAppStore((s) => s.sidebarVisible)
+  const noteListVisible = useAppStore((s) => s.noteListVisible)
+  const noteListWidth = useAppStore((s) => s.noteListWidth)
+  const toggleSidebar = useAppStore((s) => s.toggleSidebar)
+  const toggleNoteList = useAppStore((s) => s.toggleNoteList)
+  const setNoteListWidth = useAppStore((s) => s.setNoteListWidth)
 
-  const { user, syncStatus, syncError, isConfigured, signOut, triggerSync } = useSync(
+  const onMerge = useCallback((notes: any[]) => {
+    dispatch({ type: 'MERGE_SYNC', notes, folders: [] })
+  }, [dispatch])
+
+  const { user, syncStatus, syncError, isConfigured, signOut, triggerSync, conflicts, dismissConflicts } = useSync(
     state.notes, [], (notes) => onMerge(notes)
   )
 
@@ -51,10 +58,8 @@ function Layout() {
       const mod = e.ctrlKey || e.metaKey
       if (mod && e.key === 'n') {
         e.preventDefault()
-        // 前 3 次新建时显示模板选择器
-        const count = parseInt(localStorage.getItem('shimo-create-count') || '0')
-        if (count < 3) {
-          localStorage.setItem('shimo-create-count', String(count + 1))
+        // Show template picker for new users (total notes <= 3)
+        if (shouldShowTemplatePicker()) {
           setShowTemplates(true)
         } else {
           dispatch({ type: 'CREATE_NOTE' })
@@ -79,17 +84,38 @@ function Layout() {
       // Ctrl+B: 折叠/展开侧边栏
       if (mod && e.key === 'b') {
         e.preventDefault()
-        setSidebarCollapsed(v => !v)
+        toggleSidebar()
       }
       // Ctrl+\: 折叠/展开笔记列表
       if (mod && e.key === '\\') {
         e.preventDefault()
-        setListCollapsed(v => !v)
+        toggleNoteList()
+      }
+      // Ctrl+K: 插入链接（由编辑器内部处理，此处触发自定义事件）
+      if (mod && e.key === 'k') {
+        // Only dispatch if we're in the editor context — NoteEditor handles this internally
+        // No-op at global level; the editor's own keydown handler takes priority
+      }
+      // Escape: 关闭面板或取消选中笔记
+      if (e.key === 'Escape') {
+        // Close any open modal first
+        if (showGraph) { setShowGraph(false); return }
+        if (showShortcuts) { setShowShortcuts(false); return }
+        if (showImport) { setShowImport(false); return }
+        if (showReport) { setShowReport(false); return }
+        if (showSettings) { setShowSettings(false); return }
+        if (showTemplates) { setShowTemplates(false); return }
+        if (showDailyReview) { setShowDailyReview(false); return }
+        if (showAskAI) { setShowAskAI(false); return }
+        // If no modal is open, deselect active note
+        if (state.activeNoteId) {
+          dispatch({ type: 'SET_ACTIVE_NOTE', noteId: null })
+        }
       }
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [dispatch])
+  }, [dispatch, toggleSidebar, toggleNoteList, showGraph, showShortcuts, showImport, showReport, showSettings, showTemplates, showDailyReview, showAskAI, state.activeNoteId])
 
   // 桌面版今日回顾提醒（每天 21:00 检查一次）
   useEffect(() => {
@@ -115,7 +141,6 @@ function Layout() {
     return () => clearInterval(timer)
   }, [state.notes])
 
-  const [listWidth, setListWidth] = useState(260)
   const isDragging = useRef(false)
 
   const handleDragStart = useCallback(() => {
@@ -124,9 +149,9 @@ function Layout() {
     document.body.style.userSelect = 'none'
     const handleMove = (e: MouseEvent) => {
       if (!isDragging.current) return
-      const sidebarWidth = 220
+      const sidebarWidth = sidebarVisible ? 220 : 0
       const newWidth = Math.max(200, Math.min(400, e.clientX - sidebarWidth))
-      setListWidth(newWidth)
+      setNoteListWidth(newWidth)
     }
     const handleUp = () => {
       isDragging.current = false
@@ -137,91 +162,84 @@ function Layout() {
     }
     document.addEventListener('mousemove', handleMove)
     document.addEventListener('mouseup', handleUp)
-  }, [])
+  }, [sidebarVisible, setNoteListWidth])
 
   return (
     <div className="desktop-app">
       {/* 侧边栏 — 可折叠 */}
-      {!sidebarCollapsed && (
-        <LeftSidebar
-          user={user}
-          syncStatus={syncStatus}
-          syncError={syncError}
-          isConfigured={isConfigured}
-          onSignOut={signOut}
-          onSync={triggerSync}
-          onShowGraph={() => setShowGraph(true)}
-          onImport={() => setShowImport(true)}
-          onShowReport={() => setShowReport(true)}
-          onShowSettings={() => setShowSettings(true)}
-          onShowDailyReview={() => setShowDailyReview(true)}
-          onShowAskAI={() => setShowAskAI(true)}
-          onCollapse={() => setSidebarCollapsed(true)}
-        />
+      {sidebarVisible && (
+        <PanelErrorBoundary panelName="侧边栏">
+          <LeftSidebar
+            user={user}
+            syncStatus={syncStatus}
+            syncError={syncError}
+            isConfigured={isConfigured}
+            onSignOut={signOut}
+            onSync={triggerSync}
+            onShowGraph={() => setShowGraph(true)}
+            onImport={() => setShowImport(true)}
+            onShowReport={() => setShowReport(true)}
+            onShowSettings={() => setShowSettings(true)}
+            onShowDailyReview={() => setShowDailyReview(true)}
+            onShowAskAI={() => setShowAskAI(true)}
+            onCollapse={toggleSidebar}
+          />
+        </PanelErrorBoundary>
       )}
 
       {/* 笔记列表 — 可折叠 */}
-      {!listCollapsed && (
-        <>
-          <NoteList width={listWidth} onCollapse={() => setListCollapsed(true)} />
+      {noteListVisible && (
+        <PanelErrorBoundary panelName="笔记列表">
+          <NoteList width={noteListWidth} onCollapse={toggleNoteList} />
           <div
+            className="resize-handle"
             onMouseDown={handleDragStart}
-            style={{
-              width: 4, cursor: 'col-resize', flexShrink: 0,
-              background: 'transparent', position: 'relative', zIndex: 10,
-            }}
-            onMouseEnter={e => (e.currentTarget.style.background = 'var(--accent-light)')}
-            onMouseLeave={e => { if (!isDragging.current) e.currentTarget.style.background = 'transparent' }}
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="调整列表宽度"
+            aria-valuenow={noteListWidth}
+            aria-valuemin={200}
+            aria-valuemax={400}
           />
-        </>
+        </PanelErrorBoundary>
       )}
 
       {/* 编辑器 */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', position: 'relative' }}>
-        {/* 展开按钮 — 只在有面板被折叠时显示 */}
-        {(sidebarCollapsed || listCollapsed) && (
-          <div style={{
-            position: 'absolute', top: 10, left: 10, zIndex: 20,
-            display: 'flex', gap: 4,
-          }}>
-            {sidebarCollapsed && (
-              <button
-                onClick={() => setSidebarCollapsed(false)}
-                title="显示侧边栏 (Ctrl+B)"
-                style={{
-                  width: 32, height: 32, border: 'none', borderRadius: 6,
-                  background: 'var(--bg-secondary)', color: 'var(--text-faint)',
-                  cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: 16, transition: 'all 0.15s', boxShadow: 'var(--shadow-sm)',
-                }}
-                onMouseEnter={e => { e.currentTarget.style.color = 'var(--text-primary)' }}
-                onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-faint)' }}
-              >☰</button>
-            )}
-            {listCollapsed && (
-              <button
-                onClick={() => setListCollapsed(false)}
-                title="显示列表 (Ctrl+\)"
-                style={{
-                  width: 32, height: 32, border: 'none', borderRadius: 6,
-                  background: 'var(--bg-secondary)', color: 'var(--text-faint)',
-                  cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: 16, transition: 'all 0.15s', boxShadow: 'var(--shadow-sm)',
-                }}
-                onMouseEnter={e => { e.currentTarget.style.color = 'var(--text-primary)' }}
-                onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-faint)' }}
-              >▷</button>
-            )}
-          </div>
-        )}
-        <Suspense fallback={<div className="editor-panel" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}><span style={{ color: 'var(--text-faint)', fontFamily: 'var(--font-serif)', fontSize: 20, opacity: 0.3 }}>墨</span></div>}>
-          <NoteEditor />
-        </Suspense>
-      </div>
-      {showGraph && <TagGraph onClose={() => setShowGraph(false)} />}
+      <PanelErrorBoundary panelName="编辑器">
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', position: 'relative' }}>
+          {/* 展开按钮 — 只在有面板被折叠时显示 */}
+          {(!sidebarVisible || !noteListVisible) && (
+            <div style={{
+              position: 'absolute', top: 10, left: 10, zIndex: 20,
+              display: 'flex', gap: 4,
+            }}>
+              {!sidebarVisible && (
+                <button
+                  onClick={toggleSidebar}
+                  title="显示侧边栏 (Ctrl+B)"
+                  aria-label="显示侧边栏"
+                  className="panel-expand-btn"
+                >☰</button>
+              )}
+              {!noteListVisible && (
+                <button
+                  onClick={toggleNoteList}
+                  title="显示列表 (Ctrl+\)"
+                  aria-label="显示笔记列表"
+                  className="panel-expand-btn"
+                >▷</button>
+              )}
+            </div>
+          )}
+          <Suspense fallback={<div className="editor-panel" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}><span style={{ color: 'var(--text-faint)', fontFamily: 'var(--font-serif)', fontSize: 20, opacity: 0.3 }}>墨</span></div>}>
+            <NoteEditor />
+          </Suspense>
+        </div>
+      </PanelErrorBoundary>
+      {showGraph && <ComponentErrorBoundary componentName="知识图谱"><TagGraph onClose={() => setShowGraph(false)} /></ComponentErrorBoundary>}
       {showShortcuts && <ShortcutsPanel onClose={() => setShowShortcuts(false)} />}
-      {showImport && <ImportWizard onClose={() => setShowImport(false)} />}
-      {showReport && <WeeklyReport onClose={() => setShowReport(false)} />}
+      {showImport && <ComponentErrorBoundary componentName="导入向导"><ImportWizard onClose={() => setShowImport(false)} /></ComponentErrorBoundary>}
+      {showReport && <ComponentErrorBoundary componentName="周报"><WeeklyReport onClose={() => setShowReport(false)} /></ComponentErrorBoundary>}
       {showSettings && <SettingsPanel
         onClose={() => setShowSettings(false)}
         user={user}
@@ -231,8 +249,14 @@ function Layout() {
         onSignOut={signOut}
       />}
       {showTemplates && <TemplatePicker onClose={() => setShowTemplates(false)} />}
-      {showDailyReview && <DailyReview onClose={() => setShowDailyReview(false)} />}
-      {showAskAI && <AskAI onClose={() => setShowAskAI(false)} />}
+      {showDailyReview && <ComponentErrorBoundary componentName="每日回顾"><DailyReview onClose={() => setShowDailyReview(false)} /></ComponentErrorBoundary>}
+      {showAskAI && <ComponentErrorBoundary componentName="AI 助手"><AskAI
+        onClose={() => setShowAskAI(false)}
+        onInsertToEditor={(text) => {
+          // Dispatch a custom event that NoteEditor can listen to
+          window.dispatchEvent(new CustomEvent('shimo-insert-text', { detail: text }))
+        }}
+      /></ComponentErrorBoundary>}
 
       {/* 今日回顾提醒 */}
       {reviewReminder && !showWelcomeTip && (
@@ -260,6 +284,31 @@ function Layout() {
 
       {/* 首次使用提示 */}
       {showWelcomeTip && <WelcomeTip onDismiss={() => setShowWelcomeTip(false)} />}
+
+      {/* 同步冲突提示 */}
+      {conflicts.length > 0 && (
+        <div style={{
+          position: 'fixed', bottom: 20, left: '50%', transform: 'translateX(-50%)',
+          zIndex: 900, background: 'var(--bg-elevated)', border: '1px solid var(--warning)',
+          borderRadius: 12, padding: '12px 18px', boxShadow: 'var(--shadow-lg)',
+          display: 'flex', alignItems: 'center', gap: 12, maxWidth: 420,
+          animation: 'fadeIn 300ms ease-out',
+        }}>
+          <span style={{ fontSize: 18, flexShrink: 0 }}>⚠️</span>
+          <span style={{ fontSize: 13, color: 'var(--text-secondary)', fontFamily: 'var(--font-sans)', flex: 1 }}>
+            同步发现 {conflicts.length} 条笔记存在冲突，已保留最新版本。
+            {conflicts.slice(0, 2).map(c => (
+              <span key={c.local.id} style={{ display: 'block', fontSize: 11, color: 'var(--text-faint)', marginTop: 2 }}>
+                · {c.local.title || '无标题'}
+              </span>
+            ))}
+          </span>
+          <button onClick={dismissConflicts} style={{
+            border: 'none', background: 'none', color: 'var(--text-faint)',
+            fontSize: 16, cursor: 'pointer', flexShrink: 0,
+          }}>✕</button>
+        </div>
+      )}
     </div>
   )
 }
@@ -268,9 +317,13 @@ export default function App() {
   const [locked, setLocked] = useState(() => isLockEnabled() && hasPinSet())
 
   const handleUnlock = () => setLocked(false)
+  const handleLock = useCallback(() => setLocked(true), [])
+
+  // Auto-lock after 5 minutes of inactivity
+  useInactivityLock(handleLock)
 
   return (
-    <ErrorBoundary>
+    <AppErrorBoundary>
       {locked ? (
         <AppLock onUnlock={handleUnlock} />
       ) : (
@@ -278,6 +331,6 @@ export default function App() {
           <Layout />
         </StoreProvider>
       )}
-    </ErrorBoundary>
+    </AppErrorBoundary>
   )
 }

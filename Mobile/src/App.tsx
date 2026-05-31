@@ -39,12 +39,12 @@ function App() {
   const [showOnboarding, setShowOnboarding] = useState(shouldShowOnboarding)
   const [showTemplates, setShowTemplates] = useState(false)
 
-  // MERGE_SYNC 时传入当前正在编辑的 noteId，保护编辑中内容
+  // MERGE_SYNC: last-write-wins per note, no need to pass editingNoteId
   const onMerge = useCallback((notes: any[], folders: any[]) => {
-    dispatch({ type: 'MERGE_SYNC', notes, folders, editingNoteId: state.activeNoteId })
-  }, [dispatch, state.activeNoteId])
+    dispatch({ type: 'MERGE_SYNC', notes, folders })
+  }, [dispatch])
 
-  const { user, syncStatus, isConfigured, signOut, triggerSync } = useSync(
+  const { user, syncStatus, syncError: _syncError, isConfigured, signOut, triggerSync, conflicts, dismissConflicts } = useSync(
     state.notes, state.folders, onMerge
   )
 
@@ -225,6 +225,26 @@ function App() {
           onClose={() => setAuthOpen(false)}
           onAuth={() => { triggerSync(); setAuthOpen(false) }}
         />
+      )}
+
+      {/* 同步冲突提示 */}
+      {conflicts.length > 0 && (
+        <div style={{
+          position: 'fixed', bottom: 80, left: 16, right: 16,
+          zIndex: 900, background: 'var(--bg-elevated)', border: '1px solid var(--warning)',
+          borderRadius: 12, padding: '12px 16px', boxShadow: 'var(--shadow-lg)',
+          display: 'flex', alignItems: 'center', gap: 10,
+          animation: 'fadeIn 300ms ease-out',
+        }}>
+          <span style={{ fontSize: 16, flexShrink: 0 }}>⚠️</span>
+          <span style={{ fontSize: 12, color: 'var(--text-secondary)', fontFamily: 'var(--font-sans)', flex: 1 }}>
+            同步发现 {conflicts.length} 条笔记冲突，已保留最新版本
+          </span>
+          <button onClick={dismissConflicts} style={{
+            border: 'none', background: 'none', color: 'var(--text-faint)',
+            fontSize: 16, cursor: 'pointer', flexShrink: 0,
+          }}>✕</button>
+        </div>
       )}
     </div>
   )

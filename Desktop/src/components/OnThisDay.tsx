@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { useStore } from '../store'
+import { useAppStore } from '@notepro/shared/dist/lib/store/createStore'
 import { getPreview } from '@notepro/shared'
 
 interface Props {
@@ -7,11 +7,13 @@ interface Props {
 }
 
 export default function OnThisDay({ onSelect }: Props) {
-  const { state, dispatch } = useStore()
+  const notes = useAppStore((s) => s.notes)
+  const setActiveNote = useAppStore((s) => s.setActiveNote)
 
   const memories = useMemo(() => {
     const now = new Date()
-    return state.notes.filter(note => {
+    return notes.filter(note => {
+      if (note.deletedAt) return false
       const d = new Date(note.createdAt)
       return (
         d.getMonth() === now.getMonth() &&
@@ -19,7 +21,7 @@ export default function OnThisDay({ onSelect }: Props) {
         d.getFullYear() < now.getFullYear()
       )
     }).sort((a, b) => a.createdAt - b.createdAt)
-  }, [state.notes])
+  }, [notes])
 
   if (memories.length === 0) return null
 
@@ -49,7 +51,7 @@ export default function OnThisDay({ onSelect }: Props) {
         <div
           key={note.id}
           onClick={() => {
-            dispatch({ type: 'SET_ACTIVE_NOTE', noteId: note.id })
+            setActiveNote(note.id)
             onSelect(note.id)
           }}
           style={{

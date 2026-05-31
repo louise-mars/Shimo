@@ -1,0 +1,23 @@
+{
+  "enabled": true,
+  "name": "Update Docs on Source Change",
+  "description": "When source files (.ts, .tsx, .css, .sql, .rs, .toml, .json config) are edited, asks the agent to review the change and update relevant documentation in the README.md or /docs folder to keep docs in sync with the codebase.",
+  "version": "1",
+  "when": {
+    "type": "fileEdited",
+    "patterns": [
+      "*.ts",
+      "*.tsx",
+      "*.rs",
+      "*.css",
+      "*.sql",
+      "tauri.conf.json",
+      "package.json",
+      "Cargo.toml"
+    ]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "A source file was just edited. Review the change and determine if any documentation needs to be updated. If the change affects public APIs, features, configuration, architecture, or developer workflows, update the relevant documentation in either the root README.md or the appropriate file in the /docs folder (design-document.md, design-system.md, dev-log.md, engineering-lessons.md, or product-definition.md). Only make documentation changes if the code change is meaningful enough to warrant it — skip trivial refactors or formatting-only changes."
+  }
+}

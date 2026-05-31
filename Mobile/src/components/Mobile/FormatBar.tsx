@@ -62,6 +62,7 @@ async function insertImage(editor: Editor) {
 export default function FormatBar({ editor }: Props) {
   const [showColors, setShowColors] = useState(false)
   const [showFonts, setShowFonts] = useState(false)
+  const [showSizes, setShowSizes] = useState(false)
   const [showLinkInput, setShowLinkInput] = useState(false)
   const [linkUrl, setLinkUrl] = useState('')
 
@@ -128,12 +129,26 @@ export default function FormatBar({ editor }: Props) {
         {btn('→', () => editor.chain().focus().sinkListItem('listItem').run())}
         {btn('←', () => editor.chain().focus().liftListItem('listItem').run())}
         {btn('"', () => editor.chain().focus().toggleBlockquote().run(), editor.isActive('blockquote'))}
+        {btn('✦', () => editor.chain().focus().toggleHighlight().run(), editor.isActive('highlight'))}
+        {btn('`', () => editor.chain().focus().toggleCode().run(), editor.isActive('code'), { fontFamily: 'monospace', fontSize: 12 })}
+
+        <div style={{ width: 1, height: 20, background: 'var(--border-light)', margin: '0 3px', flexShrink: 0 }} />
+
+        {/* 对齐 */}
+        {btn('⫷', () => (editor.commands as any).setTextAlign('left'), editor.getAttributes('paragraph').textAlign === 'left' || !editor.getAttributes('paragraph').textAlign)}
+        {btn('⫿', () => (editor.commands as any).setTextAlign('center'), editor.getAttributes('paragraph').textAlign === 'center')}
+        {btn('⫸', () => (editor.commands as any).setTextAlign('right'), editor.getAttributes('paragraph').textAlign === 'right')}
+
+        <div style={{ width: 1, height: 20, background: 'var(--border-light)', margin: '0 3px', flexShrink: 0 }} />
+
+        {/* 表格 */}
+        {btn('▦', () => editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run(), editor.isActive('table'))}
 
         <div style={{ width: 1, height: 20, background: 'var(--border-light)', margin: '0 3px', flexShrink: 0 }} />
 
         {/* 颜色按钮 */}
         <button
-          onMouseDown={e => { e.preventDefault(); setShowColors(v => !v); setShowFonts(false) }}
+          onMouseDown={e => { e.preventDefault(); setShowColors(v => !v); setShowFonts(false); setShowSizes(false) }}
           style={{
             minWidth: 36, height: 36, border: 'none', borderRadius: 6,
             background: showColors ? 'var(--accent-bg)' : 'transparent',
@@ -147,7 +162,7 @@ export default function FormatBar({ editor }: Props) {
 
         {/* 字体按钮 */}
         <button
-          onMouseDown={e => { e.preventDefault(); setShowFonts(v => !v); setShowColors(false) }}
+          onMouseDown={e => { e.preventDefault(); setShowFonts(v => !v); setShowColors(false); setShowSizes(false) }}
           style={{
             minWidth: 36, height: 36, border: 'none', borderRadius: 6,
             background: showFonts ? 'var(--accent-bg)' : 'transparent',
@@ -156,6 +171,18 @@ export default function FormatBar({ editor }: Props) {
             fontSize: 12, fontFamily: 'var(--font-serif)',
           }}
         >字</button>
+
+        {/* 字号按钮 */}
+        <button
+          onMouseDown={e => { e.preventDefault(); setShowSizes(v => !v); setShowColors(false); setShowFonts(false) }}
+          style={{
+            minWidth: 36, height: 36, border: 'none', borderRadius: 6,
+            background: showSizes ? 'var(--accent-bg)' : 'transparent',
+            color: showSizes ? 'var(--accent)' : 'var(--text-tertiary)',
+            cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 11, fontFamily: 'var(--font-num)',
+          }}
+        >大小</button>
 
         <div style={{ width: 1, height: 20, background: 'var(--border-light)', margin: '0 3px', flexShrink: 0 }} />
 
@@ -216,6 +243,47 @@ export default function FormatBar({ editor }: Props) {
                 fontFamily: f.value || 'var(--font-sans)',
               }}
             >{f.label}</button>
+          ))}
+        </div>
+      )}
+
+      {/* 字号面板 */}
+      {showSizes && (
+        <div style={{
+          display: 'flex', gap: 6, padding: '8px 16px',
+          borderTop: '1px solid var(--border-light)',
+          background: 'var(--bg-elevated)',
+          flexWrap: 'wrap',
+        }}>
+          {[
+            { label: '默认', value: '' },
+            { label: '12', value: '12px' },
+            { label: '14', value: '14px' },
+            { label: '16', value: '16px' },
+            { label: '18', value: '18px' },
+            { label: '20', value: '20px' },
+            { label: '24', value: '24px' },
+            { label: '28', value: '28px' },
+          ].map(s => (
+            <button
+              key={s.value}
+              onMouseDown={e => {
+                e.preventDefault()
+                if (s.value) (editor.commands as any).setFontSize(s.value)
+                else (editor.commands as any).unsetFontSize()
+                setShowSizes(false)
+              }}
+              style={{
+                padding: '6px 12px', borderRadius: 6,
+                border: (editor.getAttributes('textStyle').fontSize || '') === s.value
+                  ? '1.5px solid var(--accent)' : '1px solid var(--border-light)',
+                background: 'var(--bg-primary)',
+                color: 'var(--text-secondary)',
+                fontSize: s.value ? parseInt(s.value) > 16 ? 14 : 13 : 13,
+                cursor: 'pointer',
+                fontFamily: 'var(--font-num)',
+              }}
+            >{s.label}</button>
           ))}
         </div>
       )}

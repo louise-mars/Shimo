@@ -274,9 +274,11 @@ AI：OpenAI SDK（兼容 MiniMax / Kimi / GLM / Qwen / OpenRouter）
   - lib/store.ts（共享 Store 核心：reducer, actions, helpers）
   - lib/supabase.ts（Supabase 客户端）
   - lib/syncEngine.ts（同步引擎，含冲突检测）
+  - lib/aiConfig.ts（AI 提供商配置：类型定义、注册表、localStorage 持久化）
   - lib/storage.ts（IndexedDB 存储层，含 localStorage fallback）
   - lib/imageStore.ts（图片独立存储）
   - lib/embedding.ts（向量嵌入模块）
+  - lib/noteHistory.ts（笔记版本历史，IndexedDB 快照）
   - utils/markdown.ts（Markdown 导入导出）
   - utils/tiptap.ts（TipTap 工具函数：extractText/Tags/Preview/wordCount）
   - utils/pinyin.ts（拼音搜索匹配）

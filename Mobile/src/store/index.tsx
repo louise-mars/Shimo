@@ -51,7 +51,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const lastPersistedRef = useRef('')
   useEffect(() => {
     if (!loaded) return
-    const persistKey = JSON.stringify({ n: state.notes.length, t: state.theme, af: state.activeFolderId, lu: state.notes[0]?.updatedAt })
+    // Track max updatedAt across ALL notes so any edit triggers a save
+    const maxUpdated = state.notes.reduce((max, n) => Math.max(max, n.updatedAt), 0)
+    const persistKey = JSON.stringify({ n: state.notes.length, t: state.theme, af: state.activeFolderId, mu: maxUpdated })
     if (persistKey === lastPersistedRef.current) return
     lastPersistedRef.current = persistKey
 
@@ -61,7 +63,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       idbSet(STORAGE_KEY, { notes, folders, theme, activeFolderId, editorMode }).catch(err => {
         console.error('Failed to save state:', err)
       })
-    }, 1000)
+    }, 500)
     return () => { if (saveTimer.current) clearTimeout(saveTimer.current) }
   }, [state, loaded])
 

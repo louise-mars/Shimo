@@ -2,6 +2,8 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import { useEditor, EditorContent } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import Placeholder from '@tiptap/extension-placeholder'
+import Highlight from '@tiptap/extension-highlight'
+import Typography from '@tiptap/extension-typography'
 import Image from '@tiptap/extension-image'
 import TaskList from '@tiptap/extension-task-list'
 import TaskItem from '@tiptap/extension-task-item'
@@ -10,12 +12,16 @@ import { Color } from '@tiptap/extension-color'
 import { FontFamily } from '@tiptap/extension-font-family'
 import { Link } from '@tiptap/extension-link'
 import { Underline } from '@tiptap/extension-underline'
+import { Table } from '@tiptap/extension-table'
+import { TableRow } from '@tiptap/extension-table-row'
+import { TableCell } from '@tiptap/extension-table-cell'
+import { TableHeader } from '@tiptap/extension-table-header'
 import { Extension } from '@tiptap/core'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
 import { useStore } from '../../store'
 import { useKeyboard } from '../../lib/useKeyboard'
-import { extractTags, extractPlainText, noteToMarkdown, wordCount } from '@notepro/shared'
+import { extractTags, extractPlainText, noteToMarkdown, wordCount, maybeSnapshot } from '@notepro/shared'
 import FallingPetals from './FallingPetals'
 import CalendarEventCard from './CalendarEventCard'
 import BottomVoiceBar from './BottomVoiceBar'
@@ -73,6 +79,67 @@ function getAmbience() {
   if (h >= 17 && h < 20) return { placeholder: '暮色渐浓，心绪沉淀…', petals: true  }
   return                         { placeholder: '夜深人静，与自己对话…', petals: true }
 }
+
+// TextAlign extension
+const TextAlign = Extension.create({
+  name: 'textAlign',
+  addOptions() { return { types: ['heading', 'paragraph'] } },
+  addGlobalAttributes() {
+    return [{
+      types: this.options.types,
+      attributes: {
+        textAlign: {
+          default: 'left',
+          parseHTML: element => element.style.textAlign || 'left',
+          renderHTML: attributes => {
+            if (attributes.textAlign === 'left') return {}
+            return { style: `text-align: ${attributes.textAlign}` }
+          },
+        },
+      },
+    }]
+  },
+  addCommands() {
+    return {
+      setTextAlign: (alignment: string) => ({ commands }: { commands: any }) => {
+        return this.options.types.every((type: string) =>
+          commands.updateAttributes(type, { textAlign: alignment })
+        )
+      },
+    } as any
+  },
+})
+
+// FontSize extension
+const FontSize = Extension.create({
+  name: 'fontSize',
+  addOptions() { return { types: ['textStyle'] } },
+  addGlobalAttributes() {
+    return [{
+      types: this.options.types,
+      attributes: {
+        fontSize: {
+          default: null,
+          parseHTML: element => element.style.fontSize?.replace(/['"]+/g, '') || null,
+          renderHTML: attributes => {
+            if (!attributes.fontSize) return {}
+            return { style: `font-size: ${attributes.fontSize}` }
+          },
+        },
+      },
+    }]
+  },
+  addCommands() {
+    return {
+      setFontSize: (size: string) => ({ chain }: { chain: any }) => {
+        return chain().setMark('textStyle', { fontSize: size }).run()
+      },
+      unsetFontSize: () => ({ chain }: { chain: any }) => {
+        return chain().setMark('textStyle', { fontSize: null }).removeEmptyTextStyle().run()
+      },
+    } as any
+  },
+})
 
 interface Props {
   onBack: () => void
@@ -144,14 +211,22 @@ export default function NoteEditor({ onBack, onShowGraph, onGoToSettings }: Prop
     extensions: [
       StarterKit.configure({ heading: { levels: [1, 2, 3] } }),
       Placeholder.configure({ placeholder: ambience.placeholder }),
+      Highlight,
+      Typography,
       Image.configure({ inline: false, allowBase64: true }),
       TaskList,
       TaskItem.configure({ nested: true }),
       TextStyle,
       Color,
       FontFamily,
+      FontSize,
+      TextAlign,
       Link.configure({ openOnClick: false }),
       Underline,
+      Table.configure({ resizable: false }),
+      TableRow,
+      TableCell,
+      TableHeader,
       TagHighlight,
     ],
     content: (() => { try { return note?.content ? JSON.parse(note.content) : '' } catch { return '' } })(),
@@ -176,6 +251,8 @@ export default function NoteEditor({ onBack, onShowGraph, onGoToSettings }: Prop
         detectCalendarEvents(content, note.title)
         setSaveStatus('saved')
         setTimeout(() => setSaveStatus('idle'), 2000)
+        // Auto-snapshot (runs in background, non-blocking)
+        maybeSnapshot(note.id, note.title, content, ed.getText().length).catch(() => {})
       }, 400)
     },
   })

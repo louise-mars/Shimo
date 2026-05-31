@@ -17,6 +17,9 @@ export default function MobileFolders() {
       name: newFolderName.trim(),
       emoji: newFolderEmoji,
       parentId: null,
+      order: 0,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
     }
     
     dispatch({ type: 'CREATE_FOLDER', folder })

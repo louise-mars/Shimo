@@ -54,23 +54,88 @@ export default function BottomVoiceBar({ onText, onStructured, onGoToSettings, d
     }
   }, [onText, onStructured, aiEnabled])
 
-  // 开始录音
-  const start = useCallback(async () => {
-    if (!asrReady) {
-      if (onGoToSettings) {
-        onGoToSettings()
+  // Web Speech API fallback — used when no ASR service is configured
+  const webSpeechRef = useRef<any>(null)
+
+  const startWebSpeechFallback = useCallback(() => {
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+    if (!SR) return false
+
+    const rec = new SR()
+    rec.lang = 'zh-CN'
+    rec.continuous = false
+    rec.interimResults = true
+    webSpeechRef.current = rec
+
+    let lastText = ''
+
+    rec.onresult = (e: any) => {
+      const r = e.results[e.results.length - 1]
+      lastText = r[0].transcript
+      if (r.isFinal) {
+        setMode('idle')
+        setDisplayText('')
+        if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = undefined }
+        finalize(lastText)
       } else {
-        setMode('error')
-        setDisplayText('请先在设置中配置语音识别服务')
+        setDisplayText(`识别中: ${lastText}`)
       }
-      return
+    }
+    rec.onerror = (e: any) => {
+      console.warn('[WebSpeech] error:', e.error)
+      if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = undefined }
+      if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
+        setMode('error')
+        showMsg('麦克风权限被拒绝')
+      } else if (e.error === 'network') {
+        setMode('error')
+        showMsg('语音服务不可用，请配置 ASR')
+      } else {
+        setMode('idle')
+        showMsg('识别失败，请重试')
+      }
+    }
+    rec.onend = () => {
+      if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = undefined }
+      if (mode === 'recording') {
+        // Ended naturally without a final result
+        if (lastText) finalize(lastText)
+        else showMsg('未识别到内容')
+        setMode('idle')
+      }
     }
 
-    const ok = await startRecording()
-    if (!ok) {
-      setMode('error')
-      showMsg('无法访问麦克风')
-      return
+    try {
+      rec.start()
+      return true
+    } catch {
+      return false
+    }
+  }, [finalize, mode])
+
+  // 开始录音
+  const start = useCallback(async () => {
+    if (asrReady) {
+      // Use configured ASR service (record audio → send to API)
+      const ok = await startRecording()
+      if (!ok) {
+        setMode('error')
+        showMsg('无法访问麦克风')
+        return
+      }
+    } else {
+      // Use Web Speech API as zero-config fallback
+      const ok = startWebSpeechFallback()
+      if (!ok) {
+        // Web Speech not available either — prompt to configure
+        if (onGoToSettings) {
+          onGoToSettings()
+        } else {
+          setMode('error')
+          showMsg('请在设置中配置语音识别服务')
+        }
+        return
+      }
     }
 
     setMode('recording')
@@ -81,11 +146,20 @@ export default function BottomVoiceBar({ onText, onStructured, onGoToSettings, d
     timerRef.current = setInterval(() => {
       setDuration(d => d + 1)
     }, 1000)
-  }, [asrReady])
+  }, [asrReady, startWebSpeechFallback])
 
   // 停止录音并转写
   const stop = useCallback(async () => {
     if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = undefined }
+
+    if (!asrReady) {
+      // Web Speech mode — just stop the recognition
+      if (webSpeechRef.current) {
+        webSpeechRef.current.stop()
+        webSpeechRef.current = null
+      }
+      return
+    }
 
     setMode('transcribing')
     setDisplayText('识别中…')
@@ -105,11 +179,12 @@ export default function BottomVoiceBar({ onText, onStructured, onGoToSettings, d
       setMode('idle')
       showMsg('识别失败，请重试')
     }
-  }, [finalize])
+  }, [finalize, asrReady])
 
   // 取消
   const cancel = useCallback(() => {
     if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = undefined }
+    if (webSpeechRef.current) { webSpeechRef.current.abort(); webSpeechRef.current = null }
     cancelRecording()
     setMode('idle')
     setDisplayText('')
@@ -155,7 +230,7 @@ export default function BottomVoiceBar({ onText, onStructured, onGoToSettings, d
         {displayText
           || (isActive ? `录音中 ${formatDur(duration)}… 点击停止` : '')
           || (isBusy ? '处理中…' : '')
-          || (asrReady ? '点击开始语音输入' : '点击配置语音识别 →')
+          || '点击开始语音输入'
         }
       </div>
 

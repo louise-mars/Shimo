@@ -104,6 +104,8 @@ export function clearPin(): void {
   localStorage.removeItem(PIN_HASH_KEY)
   localStorage.removeItem('shimo-app-pin')
   localStorage.removeItem(ATTEMPTS_KEY)
+  localStorage.removeItem('shimo-pin-data')
+  localStorage.removeItem('shimo-pin-attempts-v2')
   // Note: we keep DEVICE_SECRET_KEY so it can be reused if PIN is set again
 }
 

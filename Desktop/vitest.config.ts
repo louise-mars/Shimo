@@ -16,6 +16,9 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': '/src',
+      '@tauri-apps/plugin-fs': '/src/test/__mocks__/tauri-fs.ts',
+      '@tauri-apps/api/path': '/src/test/__mocks__/tauri-path.ts',
+      '@capacitor/filesystem': '/src/test/__mocks__/capacitor-filesystem.ts',
     },
   },
 })

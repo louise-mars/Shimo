@@ -288,6 +288,7 @@ useEffect(() => {
 | 图片独立存储（shimo-images DB） | 避免大 base64 撑爆主数据 | 笔记删除时需要清理孤立图片 |
 | 1s debounce 持久化 | 平衡性能和数据安全 | 崩溃时最多丢失 1s 的编辑 |
 | Pull-before-push 同步 | 避免覆盖远程更新 | 冲突检测依赖 updatedAt 精度 |
+| MERGE_SYNC 字段级合并 | 内容取 updatedAt 较新方；元数据（pinned/favorited）在远程内容更新时保留本地值，避免用户本地操作被覆盖；本地独有笔记追加保留 | 元数据字段始终取本地值可能导致远程有意的 unpin 被忽略 |
 | Realtime 订阅用 ref | 避免频繁重建 WebSocket | ref 模式让代码可读性略降 |
 | 沉浸模式 15s 触发 | 避免误触发，给用户足够的"停下来思考"时间 | 用户可能觉得太慢 |
 
@@ -300,7 +301,7 @@ useEffect(() => {
 | MobileEditor.tsx 冗余 | P1 | ✅ 已修复 | 已删除，统一使用 NoteEditor.tsx |
 | useSync triggerSync 闭包 | P1 | ✅ 已修复 | 改为 ref 模式，triggerSync 只依赖 user |
 | Store 未共享 | P2 | ✅ 已修复 | 抽取到 Shared/src/lib/store.ts |
-| MERGE_SYNC 覆盖编辑中内容 | P1 | ✅ 已修复 | 传入 editingNoteId 保护当前编辑 |
+| MERGE_SYNC 覆盖编辑中内容 | P1 | ✅ 已修复 | 升级为字段级合并：内容取 updatedAt 较新方，元数据（pinned/favorited）在远程内容更新时保留本地值，本地独有笔记追加保留 |
 | 视图状态机 | P1 | ✅ 已修复 | Mobile App.tsx 双向同步 + 显式状态函数 |
 | 图片孤立清理 | P2 | 待做 | 删除笔记时未清理 shimo-images 中的图片 |
 | 主 chunk 834KB | P2 | 待做 | 应进一步 code-split（TipTap 是大头） |

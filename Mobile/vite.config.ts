@@ -7,5 +7,15 @@ export default defineConfig({
   server: {
     host: '0.0.0.0',
     port: 5173
-  }
+  },
+  build: {
+    rollupOptions: {
+      external: [
+        '@tauri-apps/plugin-fs',
+        '@tauri-apps/api/path',
+        '@capacitor/filesystem',
+        '@capacitor-community/speech-recognition',
+      ],
+    },
+  },
 })

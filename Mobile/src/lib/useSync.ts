@@ -5,12 +5,20 @@ import type { Note, Folder } from '@notepro/shared'
 
 export type SyncStatus = 'offline' | 'syncing' | 'synced' | 'error'
 
+export interface SyncConflict {
+  local: Note
+  remote: Note
+}
+
 interface UseSyncReturn {
   user: User | null
   syncStatus: SyncStatus
+  syncError: string
   isConfigured: boolean
   signOut: () => Promise<void>
   triggerSync: () => Promise<void>
+  conflicts: SyncConflict[]
+  dismissConflicts: () => void
 }
 
 export function useSync(
@@ -20,8 +28,12 @@ export function useSync(
 ): UseSyncReturn {
   const [user, setUser] = useState<User | null>(null)
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('offline')
+  const [syncError, setSyncError] = useState('')
+  const [conflicts, setConflicts] = useState<SyncConflict[]>([])
   const isConfigured = !!supabase
   const syncingRef = useRef(false)
+  const retryCount = useRef(0)
+  const retryTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
   // Refs to always access latest data without recreating callbacks
   const notesRef = useRef(notes)
@@ -52,8 +64,27 @@ export function useSync(
       const merged = await fullSync(notesRef.current, foldersRef.current, user)
       onMergeRef.current(merged.notes, merged.folders)
       setSyncStatus('synced')
-    } catch {
+      setSyncError('')
+      retryCount.current = 0
+
+      // Surface conflicts to the UI
+      if (merged.conflicts.length > 0) {
+        setConflicts(merged.conflicts)
+      }
+    } catch (err: unknown) {
       setSyncStatus('error')
+      const e = err as { status?: number; message?: string }
+      if (e.message?.includes('network') || e.message?.includes('fetch')) setSyncError('网络连接失败')
+      else if (e.status === 401) setSyncError('登录已过期')
+      else if (e.status === 429) setSyncError('请求过于频繁')
+      else setSyncError('同步失败，点击重试')
+
+      // Exponential backoff retry (max 5 retries, max 2 min delay)
+      if (retryCount.current < 5) {
+        const delay = Math.min(120000, 5000 * Math.pow(2, retryCount.current))
+        retryCount.current++
+        retryTimer.current = setTimeout(triggerSync, delay)
+      }
     } finally {
       syncingRef.current = false
     }
@@ -75,6 +106,11 @@ export function useSync(
     }, 10000)
     return () => { if (syncTimerRef.current) clearTimeout(syncTimerRef.current) }
   }, [notes, folders]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Cleanup retry timer
+  useEffect(() => {
+    return () => { if (retryTimer.current) clearTimeout(retryTimer.current) }
+  }, [])
 
   // Realtime subscription — only re-subscribe when user changes
   useEffect(() => {
@@ -106,5 +142,7 @@ export function useSync(
     setSyncStatus('offline')
   }, [])
 
-  return { user, syncStatus, isConfigured, signOut, triggerSync }
+  const dismissConflicts = useCallback(() => setConflicts([]), [])
+
+  return { user, syncStatus, syncError, isConfigured, signOut, triggerSync, conflicts, dismissConflicts }
 }

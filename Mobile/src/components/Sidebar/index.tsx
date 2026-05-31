@@ -39,7 +39,7 @@ function SortableFolder({ folder, isActive, noteCount, onSelect, onRename, onDel
   )
 }
 
-export default function Sidebar({ onNewTemplate, onImport, syncSlot }: { onNewTemplate?: () => void; onImport?: () => void; syncSlot?: React.ReactNode }) {
+export default function Sidebar({ onNewTemplate, onImport, syncSlot, collapsed, onToggleCollapse }: { onNewTemplate?: () => void; onImport?: () => void; syncSlot?: React.ReactNode; collapsed?: boolean; onToggleCollapse?: () => void }) {
   const { state, dispatch } = useStore()
   const [addingFolder, setAddingFolder] = useState(false)
   const [addingSubfolder, setAddingSubfolder] = useState<string | null>(null)
@@ -72,7 +72,7 @@ export default function Sidebar({ onNewTemplate, onImport, syncSlot }: { onNewTe
 
   const handleAddFolder = (parentId: string | null = null) => {
     if (newFolderName.trim()) {
-      dispatch({ type: 'CREATE_FOLDER', folder: { id: crypto.randomUUID(), name: newFolderName.trim(), emoji: '📁', parentId } })
+      dispatch({ type: 'CREATE_FOLDER', folder: { id: crypto.randomUUID(), name: newFolderName.trim(), emoji: '📁', parentId, order: 0, createdAt: Date.now(), updatedAt: Date.now() } })
       if (parentId) setExpandedFolders(prev => new Set(prev).add(parentId))
       setNewFolderName(''); setAddingFolder(false); setAddingSubfolder(null)
     }
@@ -176,13 +176,13 @@ export default function Sidebar({ onNewTemplate, onImport, syncSlot }: { onNewTe
   }
 
   return (
-    <aside className={`sidebar ${state.sidebarCollapsed ? 'collapsed' : ''}`}>
+    <aside className={`sidebar ${collapsed ? 'collapsed' : ''}`}>
       <div className="sidebar-header">
         <div className="sidebar-logo">
           <span className="logo-dot" />
           <span>拾墨</span>
         </div>
-        <button className="icon-btn" onClick={() => dispatch({ type: 'TOGGLE_SIDEBAR' })} title="Toggle sidebar">
+        <button className="icon-btn" onClick={() => onToggleCollapse?.()} title="Toggle sidebar">
           <ChevronLeft size={18} />
         </button>
       </div>

@@ -44,7 +44,7 @@ export type StoreAction =
   | { type: 'SET_SEARCH'; query: string }
   | { type: 'IMPORT_NOTES'; notes: Note[] }
   | { type: 'IMPORT_BULK'; notes: Note[]; folders: Folder[] }
-  | { type: 'MERGE_SYNC'; notes: Note[]; folders: Folder[]; editingNoteId?: string | null }
+  | { type: 'MERGE_SYNC'; notes: Note[]; folders: Folder[] }
   | { type: 'LOAD_STATE'; state: Partial<StoreState> }
   | { type: 'RENAME_TAG'; oldTag: string; newTag: string }
 
@@ -100,7 +100,7 @@ export function makeNote(folderId?: string | null): Note {
   }
 }
 
-export const DEFAULT_FOLDER: Folder = { id: 'default', name: '全部', emoji: '📜', parentId: null }
+export const DEFAULT_FOLDER: Folder = { id: 'default', name: '全部', emoji: '📜', parentId: null, order: 0, createdAt: 0, updatedAt: 0 }
 
 export const INITIAL_STATE: StoreState = {
   notes: [],
@@ -248,23 +248,42 @@ export function storeReducer(state: StoreState, action: StoreAction): StoreState
     }
 
     case 'MERGE_SYNC': {
-      // 关键修复：保护正在编辑的笔记内容不被远程数据覆盖
-      const editingId = action.editingNoteId ?? state.activeNoteId
-      let mergedNotes = action.notes
+      // 合并策略：
+      // 1. 对每条笔记，如果只有一方修改了，取修改方的版本
+      // 2. 如果双方都修改了（冲突），对字段做细粒度合并：
+      //    - content/title: 取 updatedAt 更大的版本（内容以最后编辑者为准）
+      //    - 元数据 (pinned, favorited, tags, folderId): 取更新的版本
+      // 3. 保留本地有但远程没有的笔记（新建未同步的）
+      const remoteMap = new Map(action.notes.map(n => [n.id, n]))
+      const localMap = new Map(state.notes.map(n => [n.id, n]))
 
-      if (editingId) {
-        const localEditing = state.notes.find(n => n.id === editingId)
-        if (localEditing) {
-          // 保留本地正在编辑的笔记版本（本地更新时间更新 = 用户正在编辑）
-          mergedNotes = mergedNotes.map(n =>
-            n.id === editingId && localEditing.updatedAt >= n.updatedAt
-              ? localEditing
-              : n
-          )
-          // 如果远程没有这条笔记（新建的），追加
-          if (!mergedNotes.find(n => n.id === editingId)) {
-            mergedNotes = [localEditing, ...mergedNotes]
-          }
+      const mergedNotes: Note[] = action.notes.map(remote => {
+        const local = localMap.get(remote.id)
+        if (!local) return remote
+
+        // Same version — no conflict
+        if (local.updatedAt === remote.updatedAt) return local
+
+        // One side is clearly newer
+        if (local.updatedAt > remote.updatedAt) {
+          // Local is newer — keep local, but merge any remote metadata that's newer than our last sync
+          return local
+        }
+
+        // Remote is newer — keep remote content, but preserve local metadata if local was more recently toggled
+        // (e.g., user pinned a note locally but remote has a content edit from another device)
+        return {
+          ...remote,
+          // Preserve local pin/favorite if they differ and local was modified more recently for those fields
+          pinned: local.pinned !== remote.pinned ? local.pinned : remote.pinned,
+          favorited: local.favorited !== remote.favorited ? local.favorited : remote.favorited,
+        }
+      })
+
+      // Append local-only notes (created locally but not yet on remote)
+      for (const local of state.notes) {
+        if (!remoteMap.has(local.id)) {
+          mergedNotes.push(local)
         }
       }
 

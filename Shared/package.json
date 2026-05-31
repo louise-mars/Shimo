@@ -6,13 +6,21 @@
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc",
-    "dev": "tsc --watch"
+    "dev": "tsc --watch",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "devDependencies": {
-    "typescript": "~6.0.2"
+    "fake-indexeddb": "^6.2.5",
+    "jsdom": "^29.1.1",
+    "react": "^19.2.6",
+    "typescript": "~6.0.2",
+    "vitest": "^3.0.0"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.104.0",
-    "uuid": "^14.0.0"
+    "immer": "^10.2.0",
+    "uuid": "^14.0.0",
+    "zustand": "^5.0.14"
   }
 }

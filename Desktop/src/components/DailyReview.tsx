@@ -1,5 +1,5 @@
-import { useMemo } from 'react'
-import { useStore } from '../store'
+import { useMemo, useEffect } from 'react'
+import { useAppStore } from '@notepro/shared/dist/lib/store/createStore'
 import { getPreview, extractText } from '@notepro/shared'
 
 interface Props {
@@ -7,14 +7,16 @@ interface Props {
 }
 
 export default function DailyReview({ onClose }: Props) {
-  const { state, dispatch } = useStore()
+  const notes = useAppStore((s) => s.notes)
+  const setActiveNote = useAppStore((s) => s.setActiveNote)
+  const createNote = useAppStore((s) => s.createNote)
 
   const todayNotes = useMemo(() => {
     const today = new Date().toDateString()
-    return state.notes
+    return notes
       .filter(n => !n.deletedAt && new Date(n.updatedAt).toDateString() === today)
       .sort((a, b) => b.updatedAt - a.updatedAt)
-  }, [state.notes])
+  }, [notes])
 
   const totalWords = useMemo(() => {
     return todayNotes.reduce((acc, n) => acc + extractText(n.content).replace(/\s+/g, '').length, 0)
@@ -26,11 +28,25 @@ export default function DailyReview({ onClose }: Props) {
     return Array.from(set)
   }, [todayNotes])
 
-  // 随机回顾一条旧笔记
+  // 随机回顾一条旧笔记（非今天的历史笔记）
   const randomOld = useMemo(() => {
-    const old = state.notes.filter(n => !n.deletedAt && !n.hidden && new Date(n.updatedAt).toDateString() !== new Date().toDateString())
+    const today = new Date().toDateString()
+    const old = notes.filter(n => !n.deletedAt && !n.hidden && new Date(n.updatedAt).toDateString() !== today)
     return old.length > 0 ? old[Math.floor(Math.random() * old.length)] : null
-  }, [state.notes])
+  }, [notes])
+
+  // 21:00 toast notification suggestion — check on mount
+  useEffect(() => {
+    const now = new Date()
+    if (now.getHours() >= 21) {
+      const todayKey = `shimo-daily-review-toast-${now.toDateString()}`
+      if (!sessionStorage.getItem(todayKey) && todayNotes.length > 0) {
+        sessionStorage.setItem(todayKey, '1')
+        // The toast is handled by App.tsx via reviewReminder state,
+        // but we mark it as shown here to prevent duplicate triggers
+      }
+    }
+  }, [todayNotes.length])
 
   return (
     <div onClick={e => { if (e.target === e.currentTarget) onClose() }} style={{
@@ -88,7 +104,7 @@ export default function DailyReview({ onClose }: Props) {
               {todayNotes.map(note => (
                 <div
                   key={note.id}
-                  onClick={() => { dispatch({ type: 'SET_ACTIVE_NOTE', noteId: note.id }); onClose() }}
+                  onClick={() => { setActiveNote(note.id); onClose() }}
                   style={{
                     padding: '10px 12px', borderRadius: 6, cursor: 'pointer',
                     marginBottom: 4, transition: 'background 0.1s',
@@ -119,7 +135,7 @@ export default function DailyReview({ onClose }: Props) {
                 ◈ 随机回忆
               </div>
               <div
-                onClick={() => { dispatch({ type: 'SET_ACTIVE_NOTE', noteId: randomOld.id }); onClose() }}
+                onClick={() => { setActiveNote(randomOld.id); onClose() }}
                 style={{
                   padding: '12px 14px', borderRadius: 8, cursor: 'pointer',
                   background: 'var(--bg-secondary)', borderLeft: '3px solid var(--accent)',
@@ -137,7 +153,7 @@ export default function DailyReview({ onClose }: Props) {
 
           {/* New note button */}
           <button
-            onClick={() => { dispatch({ type: 'CREATE_NOTE' }); onClose() }}
+            onClick={() => { createNote(); onClose() }}
             style={{
               width: '100%', marginTop: 20, padding: '10px 0',
               background: 'var(--accent)', color: 'white',

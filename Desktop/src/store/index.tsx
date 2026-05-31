@@ -55,13 +55,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     expired.forEach(n => dispatch({ type: 'PERMANENT_DELETE', noteId: n.id }))
   }, [loading]) // eslint-disable-line
 
-  // Persist to IndexedDB with 1s debounce (only after load, only when persisted fields change)
+  // Persist to IndexedDB with 500ms debounce
+  // Track the max updatedAt across ALL notes so any edit triggers a save
   const saveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const lastPersistedRef = useRef('')
   useEffect(() => {
     if (loading) return
-    // Only persist if notes or theme or activeTag actually changed
-    const persistKey = JSON.stringify({ n: state.notes.length, t: state.theme, at: state.activeTag, lu: state.notes[0]?.updatedAt })
+
+    // Build a fingerprint that captures any note mutation
+    const maxUpdated = state.notes.reduce((max, n) => Math.max(max, n.updatedAt), 0)
+    const persistKey = JSON.stringify({
+      n: state.notes.length,
+      t: state.theme,
+      at: state.activeTag,
+      mu: maxUpdated,
+    })
     if (persistKey === lastPersistedRef.current) return
     lastPersistedRef.current = persistKey
 
@@ -71,7 +79,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       idbSet(STORAGE_KEY, { notes, theme, activeTag }).catch(err => {
         console.error('Failed to save state:', err)
       })
-    }, 1000)
+    }, 500)
     return () => { if (saveTimer.current) clearTimeout(saveTimer.current) }
   }, [state, loading])
 

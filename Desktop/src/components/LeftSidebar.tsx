@@ -1,5 +1,6 @@
-import { useMemo, useState } from 'react'
-import { useStore } from '../store'
+import { useMemo, useState, useCallback } from 'react'
+import { useAppStore } from '@notepro/shared/dist/lib/store/createStore'
+import type { Folder } from '@notepro/shared'
 import type { User } from '@supabase/supabase-js'
 import type { SyncStatus } from '../lib/useSync'
 import { exportAsJSON, exportAsMarkdown } from '../lib/exportData'
@@ -23,25 +24,99 @@ interface Props {
 }
 
 export default function LeftSidebar({ syncStatus, syncError, isConfigured, onSync, onShowGraph, onImport, onShowReport, onShowSettings, onShowDailyReview, onShowAskAI, onCollapse }: Props) {
-  const { state, dispatch } = useStore()
+  // Use Zustand store selectors and actions
+  const notes = useAppStore((s) => s.notes)
+  const folders = useAppStore((s) => s.folders)
+  const activeTag = useAppStore((s) => s.activeTag)
+  const activeFolderId = useAppStore((s) => s.activeFolderId)
+  const setActiveTag = useAppStore((s) => s.setActiveTag)
+  const setActiveFolder = useAppStore((s) => s.setActiveFolder)
+  const setActiveNote = useAppStore((s) => s.setActiveNote)
+  const createNote = useAppStore((s) => s.createNote)
+  const renameTag = useAppStore((s) => s.renameTag)
+
   const [renamingTag, setRenamingTag] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState('')
+  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set())
 
+  // Tags sorted by frequency (most used first), only from active (non-deleted) notes
   const tags = useMemo(() => {
     const map = new Map<string, number>()
-    state.notes.forEach(n => n.tags.forEach(t => map.set(t, (map.get(t) || 0) + 1)))
+    notes
+      .filter((n) => !n.deletedAt)
+      .forEach((n) => n.tags.forEach((t) => map.set(t, (map.get(t) || 0) + 1)))
     return Array.from(map.entries()).sort((a, b) => b[1] - a[1])
-  }, [state.notes])
+  }, [notes])
 
-  const favCount = state.notes.filter(n => n.favorited && !n.deletedAt).length
-  const trashCount = state.notes.filter(n => !!n.deletedAt).length
+  // Navigation view counts
+  const favCount = useMemo(
+    () => notes.filter((n) => n.favorited && !n.deletedAt).length,
+    [notes]
+  )
+  const trashCount = useMemo(
+    () => notes.filter((n) => !!n.deletedAt).length,
+    [notes]
+  )
+  const recentCount = useMemo(
+    () => notes.filter((n) => !n.deletedAt).length,
+    [notes]
+  )
+
+  // Build folder tree (root folders sorted by order)
+  const rootFolders = useMemo(
+    () => folders
+      .filter((f) => f.parentId === null)
+      .sort((a, b) => a.order - b.order),
+    [folders]
+  )
+
+  const getChildFolders = useCallback(
+    (parentId: string) =>
+      folders
+        .filter((f) => f.parentId === parentId)
+        .sort((a, b) => a.order - b.order),
+    [folders]
+  )
+
+  const toggleFolderExpand = useCallback((folderId: string) => {
+    setExpandedFolders((prev) => {
+      const next = new Set(prev)
+      if (next.has(folderId)) next.delete(folderId)
+      else next.add(folderId)
+      return next
+    })
+  }, [])
+
+  const handleFolderClick = useCallback((folderId: string) => {
+    // Clear tag filter when selecting a folder
+    setActiveTag(null)
+    setActiveFolder(activeFolderId === folderId ? null : folderId)
+  }, [activeFolderId, setActiveFolder, setActiveTag])
+
+  const handleTagClick = useCallback((tag: string) => {
+    // Clear folder filter when selecting a tag
+    setActiveFolder(null)
+    setActiveTag(activeTag === tag ? null : tag)
+  }, [activeTag, setActiveTag, setActiveFolder])
+
+  const handleNavClick = useCallback((tag: string | null) => {
+    setActiveFolder(null)
+    setActiveTag(tag)
+  }, [setActiveTag, setActiveFolder])
+
+  const handleTagRenameComplete = useCallback((oldTag: string, newValue: string) => {
+    if (newValue && newValue !== oldTag) {
+      renameTag(oldTag, newValue)
+    }
+    setRenamingTag(null)
+  }, [renameTag])
 
   const syncLabel = syncStatus === 'syncing' ? '同步中…'
     : syncStatus === 'synced' ? '已同步'
     : syncStatus === 'error' ? (syncError || '同步失败')
     : ''
 
-  // 侧边栏汉字按钮
+  // Tool button helper
   const toolBtn = (label: string, onClick: () => void) => (
     <button onClick={onClick} title={label} style={{
       flex: 1, height: 38,
@@ -54,6 +129,62 @@ export default function LeftSidebar({ syncStatus, syncError, isConfigured, onSyn
       transition: 'all 0.15s', letterSpacing: 0.5,
     }}>{label}</button>
   )
+
+  // Render a folder tree node recursively
+  const renderFolder = (folder: Folder, depth: number = 0) => {
+    const children = getChildFolders(folder.id)
+    const hasChildren = children.length > 0
+    const isExpanded = expandedFolders.has(folder.id)
+    const isActive = activeFolderId === folder.id
+
+    return (
+      <div key={folder.id}>
+        <button
+          onClick={() => handleFolderClick(folder.id)}
+          style={{
+            width: '100%',
+            padding: `6px 10px 6px ${10 + depth * 16}px`,
+            border: 'none', borderRadius: 6,
+            background: isActive ? 'var(--bg-active)' : 'transparent',
+            color: isActive ? 'var(--accent)' : 'var(--text-secondary)',
+            fontFamily: 'var(--font-sans)', fontSize: 12,
+            cursor: 'pointer', textAlign: 'left',
+            display: 'flex', alignItems: 'center', gap: 6,
+            fontWeight: isActive ? 500 : 400,
+            transition: 'all 0.15s',
+          }}
+        >
+          {hasChildren && (
+            <span
+              onClick={(e) => { e.stopPropagation(); toggleFolderExpand(folder.id) }}
+              style={{
+                fontSize: 10, width: 14, textAlign: 'center',
+                color: 'var(--text-faint)', cursor: 'pointer',
+                transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
+                transition: 'transform 0.15s',
+                display: 'inline-block',
+              }}
+            >
+              ▶
+            </span>
+          )}
+          {!hasChildren && <span style={{ width: 14 }} />}
+          <span style={{ fontSize: 14, lineHeight: 1 }}>{folder.emoji || '📁'}</span>
+          <span style={{
+            overflow: 'hidden', textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap', flex: 1,
+          }}>
+            {folder.name}
+          </span>
+        </button>
+        {hasChildren && isExpanded && (
+          <div>
+            {children.map((child) => renderFolder(child, depth + 1))}
+          </div>
+        )}
+      </div>
+    )
+  }
 
   return (
     <aside role="navigation" aria-label="侧边栏" style={{
@@ -96,7 +227,7 @@ export default function LeftSidebar({ syncStatus, syncError, isConfigured, onSyn
       {/* 新建按钮 */}
       <div style={{ padding: '14px 12px 8px' }}>
         <button
-          onClick={() => dispatch({ type: 'CREATE_NOTE' })}
+          onClick={() => createNote(activeFolderId)}
           style={{
             width: '100%', padding: '11px 14px',
             background: 'var(--accent)', color: 'white',
@@ -116,28 +247,28 @@ export default function LeftSidebar({ syncStatus, syncError, isConfigured, onSyn
         </button>
       </div>
 
-      {/* 导航 */}
+      {/* 导航视图 */}
       <nav style={{ padding: '2px 8px' }}>
         <div style={{ fontSize: 10, color: 'var(--text-faint)', fontFamily: 'var(--font-num)', letterSpacing: 1, textTransform: 'uppercase', padding: '6px 8px 4px' }}>
           视图
         </div>
         {[
-          { label: '最近', tag: null, count: state.notes.filter(n => !n.deletedAt).length, icon: <IconClock size={15} /> },
+          { label: '最近', tag: null, count: recentCount, icon: <IconClock size={15} /> },
           ...(favCount > 0 ? [{ label: '收藏', tag: '__fav', count: favCount, icon: <IconStar size={15} /> }] : []),
           ...(trashCount > 0 ? [{ label: '回收站', tag: '__trash', count: trashCount, icon: <IconClock size={15} /> }] : []),
         ].map(item => (
           <button
             key={item.label}
-            onClick={() => dispatch({ type: 'SET_ACTIVE_TAG', tag: item.tag })}
+            onClick={() => handleNavClick(item.tag)}
             style={{
               width: '100%', padding: '7px 10px',
               border: 'none', borderRadius: 6,
-              background: state.activeTag === item.tag ? 'var(--bg-active)' : 'transparent',
-              color: state.activeTag === item.tag ? 'var(--accent)' : 'var(--text-secondary)',
+              background: activeTag === item.tag && !activeFolderId ? 'var(--bg-active)' : 'transparent',
+              color: activeTag === item.tag && !activeFolderId ? 'var(--accent)' : 'var(--text-secondary)',
               fontFamily: 'var(--font-sans)', fontSize: 13,
               cursor: 'pointer', textAlign: 'left',
               display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-              fontWeight: state.activeTag === item.tag ? 500 : 400,
+              fontWeight: activeTag === item.tag && !activeFolderId ? 500 : 400,
               transition: 'all 0.15s',
             }}
           >
@@ -152,8 +283,20 @@ export default function LeftSidebar({ syncStatus, syncError, isConfigured, onSyn
         ))}
       </nav>
 
-      {/* 标签列表 - 可滚动区域，占据剩余空间 */}
+      {/* 可滚动区域：文件夹 + 标签 + On This Day */}
       <div style={{ flex: 1, overflow: 'auto', padding: '0 8px', minHeight: 0 }}>
+
+        {/* 文件夹树 */}
+        {rootFolders.length > 0 && (
+          <>
+            <div style={{ fontSize: 10, color: 'var(--text-faint)', fontFamily: 'var(--font-num)', letterSpacing: 1, textTransform: 'uppercase', padding: '8px 8px 4px' }}>
+              文件夹
+            </div>
+            {rootFolders.map((folder) => renderFolder(folder))}
+          </>
+        )}
+
+        {/* 标签列表 */}
         {tags.length > 0 && (
           <>
             <div style={{ fontSize: 10, color: 'var(--text-faint)', fontFamily: 'var(--font-num)', letterSpacing: 1, textTransform: 'uppercase', padding: '8px 8px 4px' }}>
@@ -162,7 +305,7 @@ export default function LeftSidebar({ syncStatus, syncError, isConfigured, onSyn
             {tags.map(([tag, count]) => (
               <button
                 key={tag}
-                onClick={() => dispatch({ type: 'SET_ACTIVE_TAG', tag })}
+                onClick={() => handleTagClick(tag)}
                 onDoubleClick={(e) => {
                   e.stopPropagation()
                   setRenamingTag(tag)
@@ -172,8 +315,8 @@ export default function LeftSidebar({ syncStatus, syncError, isConfigured, onSyn
                 style={{
                   width: '100%', padding: '6px 10px',
                   border: 'none', borderRadius: 6,
-                  background: state.activeTag === tag ? 'var(--bg-active)' : 'transparent',
-                  color: state.activeTag === tag ? 'var(--accent)' : 'var(--text-tertiary)',
+                  background: activeTag === tag ? 'var(--bg-active)' : 'transparent',
+                  color: activeTag === tag ? 'var(--accent)' : 'var(--text-tertiary)',
                   fontFamily: 'var(--font-sans)', fontSize: 12,
                   cursor: 'pointer', textAlign: 'left',
                   display: 'flex', alignItems: 'center', justifyContent: 'space-between',
@@ -185,19 +328,9 @@ export default function LeftSidebar({ syncStatus, syncError, isConfigured, onSyn
                     autoFocus
                     value={renameValue}
                     onChange={e => setRenameValue(e.target.value)}
-                    onBlur={() => {
-                      if (renameValue && renameValue !== tag) {
-                        dispatch({ type: 'RENAME_TAG', oldTag: tag, newTag: renameValue })
-                      }
-                      setRenamingTag(null)
-                    }}
+                    onBlur={() => handleTagRenameComplete(tag, renameValue)}
                     onKeyDown={e => {
-                      if (e.key === 'Enter') {
-                        if (renameValue && renameValue !== tag) {
-                          dispatch({ type: 'RENAME_TAG', oldTag: tag, newTag: renameValue })
-                        }
-                        setRenamingTag(null)
-                      }
+                      if (e.key === 'Enter') handleTagRenameComplete(tag, renameValue)
                       if (e.key === 'Escape') setRenamingTag(null)
                     }}
                     onClick={e => e.stopPropagation()}
@@ -221,17 +354,16 @@ export default function LeftSidebar({ syncStatus, syncError, isConfigured, onSyn
           </>
         )}
 
-        {/* On This Day 放在标签下方 */}
-        <OnThisDay onSelect={(noteId) => dispatch({ type: 'SET_ACTIVE_NOTE', noteId })} />
+        {/* On This Day */}
+        <OnThisDay onSelect={(noteId) => setActiveNote(noteId)} />
       </div>
 
-      {/* 底部工具栏 - 紧凑两行 */}
+      {/* 底部工具栏 */}
       <div style={{
         padding: '6px 8px 8px',
         borderTop: '1px solid var(--border-light)',
         display: 'flex', flexDirection: 'column', gap: 4,
       }}>
-        {/* 功能行 — 两行 */}
         <div style={{ display: 'flex', gap: 2 }}>
           {toolBtn('回顾', onShowDailyReview)}
           {toolBtn('问AI', onShowAskAI)}
@@ -242,7 +374,7 @@ export default function LeftSidebar({ syncStatus, syncError, isConfigured, onSyn
           {toolBtn('导入', onImport)}
           {toolBtn('导出', () => {
             const c = confirm('导出为 JSON？\n\n确定 = JSON\n取消 = Markdown')
-            if (c) exportAsJSON(state.notes); else exportAsMarkdown(state.notes)
+            if (c) exportAsJSON(notes); else exportAsMarkdown(notes)
           })}
           {toolBtn('设置', onShowSettings)}
         </div>
