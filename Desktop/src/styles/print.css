@@ -1,0 +1,187 @@
+/**
+ * Print styles for Ctrl+P / native PDF export.
+ * When the user prints from the browser (or Tauri's print dialog),
+ * this produces a clean, beautiful document without any app chrome.
+ */
+
+@media print {
+  /* Hide all app chrome */
+  .left-sidebar,
+  .sidebar,
+  .note-list-panel,
+  .resize-handle,
+  .panel-expand-btn,
+  .editor-toolbar,
+  .editor-statusbar,
+  .floating-toolbar,
+  .slash-menu,
+  .note-embed::before,
+  [role="dialog"],
+  [style*="position: fixed"] {
+    display: none !important;
+  }
+
+  /* Reset layout */
+  body {
+    background: white !important;
+    color: #1A1208 !important;
+    overflow: visible !important;
+    height: auto !important;
+  }
+
+  #root,
+  .desktop-app,
+  .editor-panel,
+  .editor-content-wrap {
+    display: block !important;
+    height: auto !important;
+    overflow: visible !important;
+    width: 100% !important;
+  }
+
+  /* Page setup */
+  @page {
+    margin: 2cm 2.5cm;
+    size: A4;
+  }
+
+  /* Title */
+  .editor-title {
+    font-size: 24pt !important;
+    font-weight: 700 !important;
+    font-family: 'Noto Serif SC', serif !important;
+    color: #1A1208 !important;
+    border-bottom: 1.5pt solid #B5341A !important;
+    padding-bottom: 8pt !important;
+    margin-bottom: 16pt !important;
+    page-break-after: avoid !important;
+  }
+
+  .editor-divider {
+    display: none !important;
+  }
+
+  /* Editor content */
+  .editor-content .tiptap,
+  .focus-mode-editor .tiptap {
+    font-size: 11pt !important;
+    line-height: 1.7 !important;
+    color: #1A1208 !important;
+    max-width: 100% !important;
+    padding: 0 !important;
+  }
+
+  .editor-content .tiptap h1 {
+    font-size: 18pt !important;
+    margin-top: 20pt !important;
+    page-break-after: avoid !important;
+  }
+
+  .editor-content .tiptap h2 {
+    font-size: 14pt !important;
+    margin-top: 16pt !important;
+    page-break-after: avoid !important;
+  }
+
+  .editor-content .tiptap h3 {
+    font-size: 12pt !important;
+    margin-top: 12pt !important;
+    page-break-after: avoid !important;
+  }
+
+  .editor-content .tiptap blockquote {
+    border-left: 2pt solid #B5341A !important;
+    padding-left: 12pt !important;
+    color: #555 !important;
+    font-style: italic !important;
+  }
+
+  .editor-content .tiptap pre {
+    background: #f5f5f0 !important;
+    border: 0.5pt solid #ddd !important;
+    border-radius: 4pt !important;
+    padding: 10pt !important;
+    font-size: 9pt !important;
+    page-break-inside: avoid !important;
+  }
+
+  .editor-content .tiptap code {
+    background: #f5f5f0 !important;
+    font-size: 0.9em !important;
+  }
+
+  .editor-content .tiptap img {
+    max-width: 100% !important;
+    page-break-inside: avoid !important;
+  }
+
+  .editor-content .tiptap table {
+    page-break-inside: avoid !important;
+    border-collapse: collapse !important;
+    width: 100% !important;
+  }
+
+  .editor-content .tiptap table td,
+  .editor-content .tiptap table th {
+    border: 0.5pt solid #aaa !important;
+    padding: 6pt 8pt !important;
+  }
+
+  .editor-content .tiptap table th {
+    background: #f0ede5 !important;
+    font-weight: 600 !important;
+  }
+
+  .editor-content .tiptap hr {
+    border-top: 0.5pt solid #ccc !important;
+    margin: 16pt 0 !important;
+  }
+
+  /* Task lists */
+  .editor-content .tiptap ul[data-type="taskList"] li label input[type="checkbox"] {
+    appearance: auto !important;
+    width: 10pt !important;
+    height: 10pt !important;
+    margin-top: 3pt !important;
+  }
+
+  /* Links: show URL */
+  .editor-content .tiptap a {
+    color: #B5341A !important;
+    text-decoration: underline !important;
+  }
+
+  .editor-content .tiptap a::after {
+    content: " (" attr(href) ")";
+    font-size: 8pt;
+    color: #888;
+  }
+
+  /* Wiki links */
+  .wiki-link {
+    background: none !important;
+    color: #B5341A !important;
+    font-weight: 500 !important;
+  }
+
+  /* Note embed */
+  .note-embed {
+    border: 0.5pt solid #ccc !important;
+    border-radius: 4pt !important;
+    padding: 8pt 12pt !important;
+    margin: 8pt 0 !important;
+    page-break-inside: avoid !important;
+  }
+
+  /* Inline tags */
+  .inline-tag {
+    color: #B5341A !important;
+  }
+
+  /* Hide interactive elements */
+  button,
+  .tag-suggestion,
+  .floating-toolbar {
+    display: none !important;
+  }
+}

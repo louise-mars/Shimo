@@ -23,6 +23,7 @@
   padding: 20px 0 12px;
   overflow: hidden;
   user-select: none;
+  animation: slideInLeft 200ms var(--ease-out) both;
 }
 
 .sidebar-logo {
@@ -187,6 +188,7 @@
   display: flex;
   flex-direction: column;
   background: var(--bg-primary);
+  animation: slideInLeft 200ms var(--ease-out) 50ms both;
 }
 
 .note-list-search {
@@ -258,7 +260,11 @@
   transition: all var(--duration) var(--ease);
   margin-bottom: 2px;
 }
-.note-item:hover { background: var(--bg-hover); }
+.note-item:hover {
+  background: var(--bg-hover);
+  transform: translateX(2px);
+  box-shadow: var(--shadow-sm);
+}
 .note-item.active { background: var(--bg-active); box-shadow: inset 2px 0 0 var(--accent); }
 
 .note-item-header {
@@ -482,6 +488,38 @@
   font-weight: 500;
 }
 
+/* [[双向链接]] 高亮 */
+.wiki-link {
+  color: var(--accent);
+  background: var(--accent-light);
+  border-radius: 3px;
+  padding: 0 3px;
+  cursor: pointer;
+  transition: background 0.15s;
+  text-decoration: none;
+}
+.wiki-link:hover {
+  background: var(--accent-bg);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* 笔记嵌入块 */
+.note-embed {
+  user-select: none;
+  position: relative;
+}
+.note-embed::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 3px;
+  height: 100%;
+  background: var(--accent);
+  border-radius: 3px 0 0 3px;
+}
+
 /* 状态栏 */
 .editor-statusbar {
   height: 32px;
@@ -579,8 +617,20 @@
   font-size: 16px;
   transition: all 0.15s;
   box-shadow: var(--shadow-sm);
+  animation: fadeIn 200ms ease-out;
 }
 .panel-expand-btn:hover {
   color: var(--text-primary);
   background: var(--bg-hover);
+}
+
+/* === 面板动画 === */
+@keyframes slideInLeft {
+  from { opacity: 0; transform: translateX(-16px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes slideInRight {
+  from { opacity: 0; transform: translateX(16px); }
+  to { opacity: 1; transform: translateX(0); }
 }

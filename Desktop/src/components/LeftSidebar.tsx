@@ -6,6 +6,7 @@ import type { SyncStatus } from '../lib/useSync'
 import { exportAsJSON, exportAsMarkdown } from '../lib/exportData'
 import { IconClock, IconStar } from './Icons'
 import OnThisDay from './OnThisDay'
+import DailyPrompt, { shouldShowDailyPrompt } from './DailyPrompt'
 
 interface Props {
   user: User | null
@@ -356,6 +357,14 @@ export default function LeftSidebar({ syncStatus, syncError, isConfigured, onSyn
 
         {/* On This Day */}
         <OnThisDay onSelect={(noteId) => setActiveNote(noteId)} />
+
+        {/* Daily Prompt */}
+        {shouldShowDailyPrompt() && (
+          <DailyPrompt
+            onCreateNote={() => { createNote(activeFolderId) }}
+            onDismiss={() => {}}
+          />
+        )}
       </div>
 
       {/* 底部工具栏 */}

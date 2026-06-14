@@ -338,6 +338,22 @@ body {
 /* #标签内联高亮 */
 .inline-tag { color: var(--accent); font-weight: 500; }
 
+/* [[双向链接]] 高亮 */
+.wiki-link {
+  color: var(--accent);
+  background: var(--accent-light);
+  border-radius: 3px;
+  padding: 0 3px;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+  text-decoration: none;
+}
+.wiki-link:hover {
+  background: var(--accent-bg);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 /* Floating Toolbar */
 .floating-toolbar {
   display: flex; align-items: center; gap: 1px; padding: 4px;
@@ -400,5 +416,7 @@ body {
 
 /* Animations */
 @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes slideInLeft { from { opacity: 0; transform: translateX(-16px); } to { opacity: 1; transform: translateX(0); } }
+@keyframes slideInRight { from { opacity: 0; transform: translateX(16px); } to { opacity: 1; transform: translateX(0); } }
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
 @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }

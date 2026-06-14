@@ -284,6 +284,37 @@ AI：OpenAI SDK（兼容 MiniMax / Kimi / GLM / Qwen / OpenRouter）
   - utils/pinyin.ts（拼音搜索匹配）
 ```
 
+### 笔记双向链接系统
+
+```
+位置：Desktop/src/components/Editor/
+
+组件：
+  - WikiLink.ts        — [[标题]] 内联链接（ProseMirror 装饰，点击跳转）
+  - WikiLinkSuggestion.tsx — [[ 触发的自动补全菜单
+  - NoteEmbed.tsx      — ![[标题]] 块级嵌入（TipTap Node 扩展 + React NodeView）
+  - NoteEmbedSuggestion.tsx — ![[ 触发的自动补全菜单
+  - BacklinksPanel.tsx — 反向链接面板
+
+语法：
+  - [[笔记标题]]   → 渲染为可点击内联链接，点击导航到目标笔记
+  - ![[笔记标题]]  → 渲染为块级嵌入卡片，展示目标笔记预览内容
+
+NoteEmbed 技术细节：
+  - TipTap 自定义 Node（atom: true，不可直接编辑）
+  - ReactNodeViewRenderer 渲染嵌入内容
+  - 按标题模糊匹配（大小写不敏感）解析目标笔记
+  - 嵌入卡片显示：标题、内容预览（200字）、字数统计、标签
+  - 未找到目标时显示占位提示
+  - 点击嵌入卡片导航到源笔记
+
+自动补全：
+  - 输入 ![[ 后触发 NoteEmbedSuggestion 弹窗
+  - 支持拼音匹配筛选
+  - ↑↓ 导航，Enter/Tab 确认，Esc 取消
+  - 显示笔记标题 + 内容预览
+```
+
 ### 项目结构
 ```
 c:\kiro\Shimo\

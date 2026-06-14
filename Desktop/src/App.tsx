@@ -4,6 +4,7 @@ import { useAppStore } from '@notepro/shared'
 import LeftSidebar from './components/LeftSidebar'
 import NoteList from './components/NoteList'
 const NoteEditor = lazy(() => import('./components/NoteEditor'))
+import CommandPalette from './components/CommandPalette'
 import TagGraph from './components/TagGraph'
 import ShortcutsPanel from './components/ShortcutsPanel'
 import ImportWizard from './components/ImportWizard'
@@ -12,6 +13,11 @@ import DailyReview from './components/DailyReview'
 import AskAI from './components/AskAI'
 import SettingsPanel from './components/SettingsPanel'
 import TemplatePicker, { shouldShowTemplatePicker } from './components/TemplatePicker'
+import FocusMode from './components/FocusMode'
+import ThemePicker, { applyPalette } from './components/ThemePicker'
+import KanbanView from './components/KanbanView'
+import SearchPanel from './components/SearchPanel'
+import ImageGallery from './components/ImageGallery'
 import AppLock, { isLockEnabled, hasPinSet, useInactivityLock } from './components/AppLock'
 import { AppErrorBoundary, PanelErrorBoundary, ComponentErrorBoundary } from './components/ErrorBoundary'
 import WelcomeTip, { shouldShowTip } from './components/WelcomeTip'
@@ -23,6 +29,9 @@ import './styles/desktop.css'
 // Initialize Sentry for error tracking
 initSentry()
 
+// Apply saved color palette on startup
+applyPalette()
+
 function Layout() {
   const { state, dispatch } = useStore()
   const [showGraph, setShowGraph] = useState(false)
@@ -33,6 +42,12 @@ function Layout() {
   const [showTemplates, setShowTemplates] = useState(false)
   const [showDailyReview, setShowDailyReview] = useState(false)
   const [showAskAI, setShowAskAI] = useState(false)
+  const [showCommandPalette, setShowCommandPalette] = useState(false)
+  const [showFocusMode, setShowFocusMode] = useState(false)
+  const [showThemePicker, setShowThemePicker] = useState(false)
+  const [showKanban, setShowKanban] = useState(false)
+  const [showSearch, setShowSearch] = useState(false)
+  const [showImageGallery, setShowImageGallery] = useState(false)
   const [reviewReminder, setReviewReminder] = useState('')
   const [showWelcomeTip, setShowWelcomeTip] = useState(shouldShowTip)
 
@@ -51,6 +66,12 @@ function Layout() {
   const { user, syncStatus, syncError, isConfigured, signOut, triggerSync, conflicts, dismissConflicts } = useSync(
     state.notes, [], (notes) => onMerge(notes)
   )
+
+  // Re-apply color palette when switching from dark to light mode
+  const theme = useAppStore((s) => s.theme)
+  useEffect(() => {
+    if (theme !== 'dark') applyPalette()
+  }, [theme])
 
   // 快捷键
   useEffect(() => {
@@ -86,19 +107,44 @@ function Layout() {
         e.preventDefault()
         toggleSidebar()
       }
+      // Ctrl+Shift+F: 专注模式
+      if (mod && e.shiftKey && e.key === 'F') {
+        e.preventDefault()
+        if (state.activeNoteId) setShowFocusMode(true)
+      }
+      // Ctrl+F: 高级搜索（非编辑器内）
+      if (mod && !e.shiftKey && e.key === 'f') {
+        const tag = (e.target as HTMLElement)?.tagName
+        const isEditing = tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement)?.closest('.tiptap')
+        if (!isEditing) {
+          e.preventDefault()
+          setShowSearch(true)
+        }
+      }
       // Ctrl+\: 折叠/展开笔记列表
       if (mod && e.key === '\\') {
         e.preventDefault()
         toggleNoteList()
       }
-      // Ctrl+K: 插入链接（由编辑器内部处理，此处触发自定义事件）
+      // Ctrl+K: 打开命令面板
       if (mod && e.key === 'k') {
-        // Only dispatch if we're in the editor context — NoteEditor handles this internally
-        // No-op at global level; the editor's own keydown handler takes priority
+        // Only open command palette if NOT in the editor (editor handles Ctrl+K for links)
+        const tag = (e.target as HTMLElement)?.tagName
+        const isEditing = tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement)?.closest('.tiptap')
+        if (!isEditing) {
+          e.preventDefault()
+          setShowCommandPalette(true)
+        }
       }
       // Escape: 关闭面板或取消选中笔记
       if (e.key === 'Escape') {
         // Close any open modal first
+        if (showFocusMode) { setShowFocusMode(false); return }
+        if (showThemePicker) { setShowThemePicker(false); return }
+        if (showKanban) { setShowKanban(false); return }
+        if (showSearch) { setShowSearch(false); return }
+        if (showImageGallery) { setShowImageGallery(false); return }
+        if (showCommandPalette) { setShowCommandPalette(false); return }
         if (showGraph) { setShowGraph(false); return }
         if (showShortcuts) { setShowShortcuts(false); return }
         if (showImport) { setShowImport(false); return }
@@ -115,7 +161,7 @@ function Layout() {
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [dispatch, toggleSidebar, toggleNoteList, showGraph, showShortcuts, showImport, showReport, showSettings, showTemplates, showDailyReview, showAskAI, state.activeNoteId])
+  }, [dispatch, toggleSidebar, toggleNoteList, showFocusMode, showThemePicker, showKanban, showSearch, showImageGallery, showCommandPalette, showGraph, showShortcuts, showImport, showReport, showSettings, showTemplates, showDailyReview, showAskAI, state.activeNoteId])
 
   // 桌面版今日回顾提醒（每天 21:00 检查一次）
   useEffect(() => {
@@ -237,6 +283,29 @@ function Layout() {
         </div>
       </PanelErrorBoundary>
       {showGraph && <ComponentErrorBoundary componentName="知识图谱"><TagGraph onClose={() => setShowGraph(false)} /></ComponentErrorBoundary>}
+      {showCommandPalette && <CommandPalette
+        onClose={() => setShowCommandPalette(false)}
+        onShowGraph={() => setShowGraph(true)}
+        onShowReport={() => setShowReport(true)}
+        onShowSettings={() => setShowSettings(true)}
+        onShowDailyReview={() => setShowDailyReview(true)}
+        onShowAskAI={() => setShowAskAI(true)}
+        onShowImport={() => setShowImport(true)}
+        onShowTemplates={() => setShowTemplates(true)}
+        onShowFocusMode={() => { if (state.activeNoteId) setShowFocusMode(true) }}
+        onShowThemePicker={() => setShowThemePicker(true)}
+        onShowKanban={() => setShowKanban(true)}
+        onShowSearch={() => setShowSearch(true)}
+        onShowImageGallery={() => setShowImageGallery(true)}
+      />}
+      {showFocusMode && state.activeNoteId && (() => {
+        const focusNote = state.notes.find(n => n.id === state.activeNoteId)
+        return focusNote ? <FocusMode note={focusNote} onClose={() => setShowFocusMode(false)} /> : null
+      })()}
+      {showThemePicker && <ThemePicker onClose={() => setShowThemePicker(false)} />}
+      {showKanban && <KanbanView onClose={() => setShowKanban(false)} />}
+      {showSearch && <SearchPanel onClose={() => setShowSearch(false)} />}
+      {showImageGallery && <ImageGallery onClose={() => setShowImageGallery(false)} />}
       {showShortcuts && <ShortcutsPanel onClose={() => setShowShortcuts(false)} />}
       {showImport && <ComponentErrorBoundary componentName="导入向导"><ImportWizard onClose={() => setShowImport(false)} /></ComponentErrorBoundary>}
       {showReport && <ComponentErrorBoundary componentName="周报"><WeeklyReport onClose={() => setShowReport(false)} /></ComponentErrorBoundary>}

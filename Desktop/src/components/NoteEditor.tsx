@@ -24,6 +24,7 @@ import { findRelatedNotes, getNudgeText } from '../lib/relations'
 import { extractTags, wordCount } from '@notepro/shared'
 import { noteToMarkdown } from '@notepro/shared'
 import { exportAsPDF } from '../lib/exportData'
+import { downloadStyledHTML } from '../lib/exportStyled'
 import { maybeSnapshot } from '@notepro/shared'
 import { computeDebounceMs, SmartSerializer } from '@notepro/shared'
 import { createImageStore, compressImage, shouldCompress } from '@notepro/shared'
@@ -35,6 +36,12 @@ import SlashMenu from './SlashMenu'
 import FloatingToolbar from './FloatingToolbar'
 import VoiceInput from './VoiceInput'
 import NoteHistory from './NoteHistory'
+import WikiLinkHighlight from './Editor/WikiLink'
+import BacklinksPanel from './Editor/BacklinksPanel'
+import WikiLinkSuggestion from './Editor/WikiLinkSuggestion'
+import NoteEmbedExtension from './Editor/NoteEmbed'
+import NoteEmbedSuggestion from './Editor/NoteEmbedSuggestion'
+import TableControls from './Editor/TableControls'
 import { verifyPin, setPinHash, hasPinConfigured, clearPin, getAttempts, recordFailedAttempt, resetAttempts } from '../lib/pinSecurity'
 
 // #标签 高亮 (optimized: only recompute when doc changes)
@@ -169,6 +176,8 @@ export default function NoteEditor() {
   const [slashOpen, setSlashOpen] = useState(false)
   const [immersive, setImmersive] = useState(false)
   const [showHistory, setShowHistory] = useState(false)
+  const [wikiLinkOpen, setWikiLinkOpen] = useState(false)
+  const [embedSuggestionOpen, setEmbedSuggestionOpen] = useState(false)
   const [linkInputOpen, setLinkInputOpen] = useState(false)
   const [linkUrl, setLinkUrl] = useState('')
   const [imgResizeTarget, setImgResizeTarget] = useState<HTMLImageElement | null>(null)
@@ -213,6 +222,16 @@ export default function NoteEditor() {
       TableCell,
       TableHeader,
       TagHighlight,
+      WikiLinkHighlight.configure({
+        onNavigate: (title: string) => {
+          // Find note by title and navigate to it
+          const target = notesRef.current.find(n => !n.deletedAt && n.title.toLowerCase() === title.toLowerCase())
+          if (target) {
+            dispatch({ type: 'SET_ACTIVE_NOTE', noteId: target.id })
+          }
+        },
+      }),
+      NoteEmbedExtension,
     ],
     content: '',
     onUpdate: ({ editor: ed }) => {
@@ -224,6 +243,26 @@ export default function NoteEditor() {
         if (ch === '/' && !slashOpen) {
           const prev = from > 1 ? ed.state.doc.textBetween(from - 2, from - 1) : ''
           if (prev === '' || prev === ' ' || prev === '\n' || from === 1) setSlashOpen(true)
+        }
+        // Detect [[ for wiki link suggestion
+        if (from >= 2) {
+          const lastTwo = ed.state.doc.textBetween(Math.max(0, from - 2), from)
+          if (lastTwo === '[[' && !wikiLinkOpen) setWikiLinkOpen(true)
+        }
+        // Close wiki link if ]] typed
+        if (wikiLinkOpen && from >= 2) {
+          const lastTwo = ed.state.doc.textBetween(Math.max(0, from - 2), from)
+          if (lastTwo === ']]') setWikiLinkOpen(false)
+        }
+        // Detect ![[ for note embed suggestion
+        if (from >= 3) {
+          const lastThree = ed.state.doc.textBetween(Math.max(0, from - 3), from)
+          if (lastThree === '![[' && !embedSuggestionOpen) setEmbedSuggestionOpen(true)
+        }
+        // Close embed suggestion if ]] typed
+        if (embedSuggestionOpen && from >= 2) {
+          const lastTwo = ed.state.doc.textBetween(Math.max(0, from - 2), from)
+          if (lastTwo === ']]') setEmbedSuggestionOpen(false)
         }
       } catch { /* ignore */ }
       setSaveStatus('saving')
@@ -338,12 +377,27 @@ export default function NoteEditor() {
         display: 'flex', flexDirection: 'column',
         alignItems: 'center', justifyContent: 'center',
         gap: 16, userSelect: 'none',
+        animation: 'fadeIn 400ms ease-out',
       }}>
+        {/* Ink wash mountain SVG illustration */}
+        <svg width="200" height="120" viewBox="0 0 200 120" fill="none" style={{ opacity: 0.12 }}>
+          {/* Mountains */}
+          <path d="M0 120 L30 60 L55 85 L80 40 L105 70 L130 30 L155 65 L180 45 L200 80 L200 120 Z" fill="currentColor" opacity="0.3" />
+          <path d="M0 120 L20 80 L50 95 L75 70 L100 90 L130 55 L160 85 L200 65 L200 120 Z" fill="currentColor" opacity="0.5" />
+          <path d="M0 120 L40 100 L70 105 L100 95 L140 100 L170 95 L200 105 L200 120 Z" fill="currentColor" opacity="0.7" />
+          {/* Moon */}
+          <circle cx="155" cy="25" r="12" fill="currentColor" opacity="0.15" />
+          {/* Birds */}
+          <path d="M60 20 Q65 15 70 20" stroke="currentColor" strokeWidth="1" fill="none" opacity="0.3" />
+          <path d="M75 15 Q80 10 85 15" stroke="currentColor" strokeWidth="1" fill="none" opacity="0.25" />
+          <path d="M50 28 Q54 24 58 28" stroke="currentColor" strokeWidth="0.8" fill="none" opacity="0.2" />
+        </svg>
         <div style={{
-          fontSize: 48, opacity: 0.12,
+          fontSize: 20, opacity: 0.15,
           fontFamily: 'var(--font-serif)',
+          letterSpacing: 8,
         }}>
-          墨
+          拾墨
         </div>
         <p style={{
           fontSize: 14, color: 'var(--text-faint)',
@@ -374,12 +428,14 @@ export default function NoteEditor() {
           <span style={{ fontSize: 16 }}>✦</span>
           新建笔记
         </button>
-        <span style={{
+        <div style={{
+          display: 'flex', gap: 12,
           fontSize: 11, color: 'var(--text-faint)',
           fontFamily: 'var(--font-num)',
         }}>
-          快捷键 Ctrl+N
-        </span>
+          <span><kbd style={{ padding: '1px 5px', background: 'var(--bg-secondary)', border: '1px solid var(--border-light)', borderRadius: 4, fontSize: 10 }}>Ctrl+N</kbd> 新建</span>
+          <span><kbd style={{ padding: '1px 5px', background: 'var(--bg-secondary)', border: '1px solid var(--border-light)', borderRadius: 4, fontSize: 10 }}>Ctrl+K</kbd> 命令</span>
+        </div>
       </div>
     )
   }
@@ -764,6 +820,24 @@ export default function NoteEditor() {
               <polyline points="14 2 14 8 20 8" />
               <line x1="16" y1="13" x2="8" y2="13" />
               <line x1="16" y1="17" x2="8" y2="17" />
+            </svg>
+          </button>
+          {/* 导出精美 HTML */}
+          <button
+            onClick={() => downloadStyledHTML(note)}
+            title="导出精美 HTML"
+            aria-label="导出精美 HTML"
+            style={{
+              width: 34, height: 34, border: 'none', borderRadius: 7,
+              background: 'transparent', color: 'var(--text-faint)',
+              cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              transition: 'all 0.15s',
+            }}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="7 10 12 15 17 10" />
+              <line x1="12" y1="15" x2="12" y2="3" />
             </svg>
           </button>
           {/* 分享 */}
@@ -1242,6 +1316,9 @@ export default function NoteEditor() {
         {/* 浮动格式栏 — 选中文字时出现 */}
         {editor && <FloatingToolbar editor={editor} onLinkClick={() => { setLinkInputOpen(true); setLinkUrl(editor.getAttributes('link').href || 'https://') }} />}
 
+        {/* 表格控制栏 — 光标在表格中时出现 */}
+        {editor && <TableControls editor={editor} />}
+
         {/* 图片尺寸选择 */}
         {imgResizeTarget && (
           <div style={{
@@ -1279,7 +1356,22 @@ export default function NoteEditor() {
         {slashOpen && editor && (
           <SlashMenu editor={editor} onClose={() => setSlashOpen(false)} />
         )}
+
+        {/* WikiLink 建议 */}
+        {wikiLinkOpen && editor && (
+          <WikiLinkSuggestion editor={editor} onClose={() => setWikiLinkOpen(false)} />
+        )}
+
+        {/* Note Embed 建议 */}
+        {embedSuggestionOpen && editor && (
+          <NoteEmbedSuggestion editor={editor} onClose={() => setEmbedSuggestionOpen(false)} />
+        )}
       </div>
+
+      {/* Backlinks — 引用当前笔记的其他笔记 */}
+      {note.title && (
+        <BacklinksPanel noteId={note.id} noteTitle={note.title} />
+      )}
 
       {/* Cognitive Nudge — 关联笔记轻提示 */}
       {relatedNotes.length > 0 && nudgeDismissed !== note.id && (
